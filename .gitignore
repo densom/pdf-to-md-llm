@@ -8,9 +8,22 @@ wheels/
 
 # Virtual environments
 .venv
+venv/
+env/
 
 # environment files
 .env
+.env.local
+
+# PyPI/build artifacts
+*.egg
+*.whl
+.eggs/
+*.manifest
+*.spec
+
+# uv
+.python-version
 
 # files to process for development
 /input
