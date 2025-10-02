@@ -5,9 +5,9 @@ Converts PDF documents to clean markdown with LLM assistance
 """
 
 import os
-import sys
+import click
 import anthropic
-import pymupdf  # PyMuPDF (pip install pymupdf)
+import pymupdf  # PyMuPDF
 from pathlib import Path
 from typing import List, Optional
 from dotenv import load_dotenv
@@ -211,56 +211,51 @@ def batch_convert(input_folder: str, output_folder: Optional[str] = None):
     print(f"  Output directory: {output_path}")
 
 
-def main():
-    """Main entry point for command-line usage."""
-    if len(sys.argv) < 2:
-        print("""
-PDF to Markdown Converter (LLM-Assisted)
+@click.group(invoke_without_command=True)
+@click.pass_context
+def cli(ctx):
+    """PDF to Markdown Converter (LLM-Assisted)
 
-Usage:
-    python pdf_to_markdown.py <pdf_file>                    # Convert single file
-    python pdf_to_markdown.py <pdf_file> <output_file>      # Convert with custom output
-    python pdf_to_markdown.py --batch <input_folder>        # Convert all PDFs in folder
-    python pdf_to_markdown.py --batch <input_folder> <output_folder>  # Batch with output folder
-
-Environment Variables:
-    ANTHROPIC_API_KEY - Your Anthropic API key (required)
-
-Examples:
-    python pdf_to_markdown.py document.pdf
-    python pdf_to_markdown.py document.pdf output.md
-    python pdf_to_markdown.py --batch ./pdfs
-    python pdf_to_markdown.py --batch ./pdfs ./markdown_output
-        """)
-        sys.exit(1)
-    
+    Convert PDF documents to clean, well-structured Markdown using Claude API.
+    """
     # Check for API key
     if ANTHROPIC_API_KEY == "your-api-key-here":
-        print("Error: Please set ANTHROPIC_API_KEY environment variable")
-        print("  export ANTHROPIC_API_KEY='your-key-here'")
-        sys.exit(1)
-    
-    # Batch mode
-    if sys.argv[1] == "--batch":
-        if len(sys.argv) < 3:
-            print("Error: --batch requires input folder")
-            sys.exit(1)
-        
-        input_folder = sys.argv[2]
-        output_folder = sys.argv[3] if len(sys.argv) > 3 else None
-        batch_convert(input_folder, output_folder)
-    
-    # Single file mode
-    else:
-        pdf_path = sys.argv[1]
-        output_path = sys.argv[2] if len(sys.argv) > 2 else None
-        
-        if not os.path.exists(pdf_path):
-            print(f"Error: File not found: {pdf_path}")
-            sys.exit(1)
-        
-        convert_pdf_to_markdown(pdf_path, output_path)
+        click.echo("Error: Please set ANTHROPIC_API_KEY environment variable", err=True)
+        click.echo("  export ANTHROPIC_API_KEY='your-key-here'", err=True)
+        ctx.exit(1)
+
+    # If no subcommand is provided, show help
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+
+
+@cli.command()
+@click.argument('pdf_file', type=click.Path(exists=True, dir_okay=False))
+@click.argument('output_file', type=click.Path(), required=False)
+@click.option('--pages-per-chunk', default=PAGES_PER_CHUNK, type=int,
+              help=f'Number of pages to process per API call (default: {PAGES_PER_CHUNK})')
+def convert(pdf_file, output_file, pages_per_chunk):
+    """Convert a single PDF file to markdown.
+
+    PDF_FILE: Path to the PDF file to convert
+
+    OUTPUT_FILE: Optional output path (defaults to same name with .md extension)
+    """
+    convert_pdf_to_markdown(pdf_file, output_file, pages_per_chunk)
+
+
+@cli.command()
+@click.argument('input_folder', type=click.Path(exists=True, file_okay=False))
+@click.argument('output_folder', type=click.Path(), required=False)
+def batch(input_folder, output_folder):
+    """Convert all PDF files in a folder to markdown.
+
+    INPUT_FOLDER: Folder containing PDF files
+
+    OUTPUT_FOLDER: Optional output folder (defaults to same as input)
+    """
+    batch_convert(input_folder, output_folder)
 
 
 if __name__ == "__main__":
-    main()
+    cli()

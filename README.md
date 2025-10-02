@@ -41,30 +41,47 @@ export ANTHROPIC_API_KEY='your-api-key-here'
 
 ## Usage
 
+The CLI is built with Click and provides two main commands: `convert` for single files and `batch` for folders.
+
 ### Single File Conversion
 
 ```bash
 # Convert with auto-generated output filename
-python pdf_to_markdown.py document.pdf
+python pdf_to_markdown.py convert document.pdf
 
 # Convert with custom output filename
-python pdf_to_markdown.py document.pdf output.md
+python pdf_to_markdown.py convert document.pdf output.md
+
+# Convert with custom chunk size
+python pdf_to_markdown.py convert document.pdf --pages-per-chunk 10
 ```
 
 ### Batch Conversion
 
 ```bash
 # Convert all PDFs in a folder (output to same folder)
-python pdf_to_markdown.py --batch ./input-folder
+python pdf_to_markdown.py batch ./input-folder
 
 # Convert with custom output folder
-python pdf_to_markdown.py --batch ./input-folder ./output-folder
+python pdf_to_markdown.py batch ./input-folder ./output-folder
 ```
 
 ### With uv
 
 ```bash
-uv run pdf_to_markdown.py document.pdf
+uv run pdf_to_markdown.py convert document.pdf
+uv run pdf_to_markdown.py batch ./input-folder
+```
+
+### Getting Help
+
+```bash
+# Show general help
+python pdf_to_markdown.py --help
+
+# Show help for a specific command
+python pdf_to_markdown.py convert --help
+python pdf_to_markdown.py batch --help
 ```
 
 ## How It Works
@@ -87,6 +104,7 @@ Edit `pdf_to_markdown.py` to adjust:
 - **anthropic**: Claude API client
 - **pymupdf**: PDF text extraction
 - **python-dotenv**: Environment variable management
+- **click**: CLI framework
 
 ## Output Format
 
