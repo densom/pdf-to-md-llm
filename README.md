@@ -250,27 +250,55 @@ Combine pages into chunks for processing.
 
 ### For Package Maintainers
 
-1. **Install build dependencies:**
+This project uses automated GitHub Actions workflows for publishing to PyPI.
+
+#### Production Releases (Automatic)
+
+Publishing to PyPI happens automatically when commits are pushed or merged to the `main` branch:
+
+1. **Update version numbers:**
+   - Update version in `pyproject.toml`
+   - Update version in `pdf_to_md_llm/__init__.py`
+   - Ensure both versions match
+
+2. **Merge to main:**
+   - Create a PR with your changes
+   - Merge to `main` branch
+   - The workflow automatically builds and publishes to PyPI
+
+3. **Verify:**
+   - Check the GitHub Actions tab for workflow status
+   - Visit [pypi.org/project/pdf-to-md-llm/](https://pypi.org/project/pdf-to-md-llm/)
+
+#### Test Releases (Manual)
+
+For testing before production release:
+
+1. Go to GitHub Actions tab
+2. Select "Publish to Test PyPI" workflow
+3. Click "Run workflow"
+4. Optionally provide a test version (e.g., `0.1.1-test1`)
+5. Install from Test PyPI to verify:
    ```bash
-   pip install uv
+   pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ pdf-to-md-llm
    ```
 
-2. **Build the package:**
-   ```bash
-   uv build
-   ```
-   This creates distribution files in the `dist/` directory.
+#### Local Build Testing
 
-3. **Publish to PyPI:**
-   ```bash
-   uv publish
-   ```
-   You'll need a PyPI account and API token.
+To test the build process locally without publishing:
 
-4. **Or publish to Test PyPI first:**
-   ```bash
-   uv publish --publish-url https://test.pypi.org/legacy/
-   ```
+```bash
+# Install uv
+pip install uv
+
+# Build the package
+uv build
+
+# Check the built files
+ls -la dist/
+```
+
+For complete setup instructions, see [.github/PUBLISHING.md](.github/PUBLISHING.md)
 
 ## License
 
