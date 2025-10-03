@@ -77,10 +77,12 @@ def convert_chunk_to_markdown(
 Requirements:
 - Use proper heading hierarchy (# for main titles, ## for sections, ### for subsections)
 - Convert any tables to proper markdown table format with aligned columns
+- Convert tables to structured headings instead of markdown tables if they are complex
+- Watch out for tables that span multiple pages - treat them as one table
 - Clean up formatting artifacts from PDF extraction (broken lines, weird spacing)
 - Use consistent bullet points and numbered lists
 - Preserve all information - don't summarize or omit content
-- Remove page numbers, headers, and footers if they appear
+- ALWAYS Remove page numbers, headers, and footers if they appear
 - Make the document scannable with clear structure
 
 Output ONLY the markdown - no explanations or commentary.

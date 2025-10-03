@@ -1,6 +1,6 @@
 [project]
 name = "pdf-to-md-llm"
-version = "0.1.2"
+version = "0.2.0"
 description = "Convert PDF documents to clean Markdown using Claude API"
 readme = "README.md"
 requires-python = ">=3.10"
