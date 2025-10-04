@@ -3,7 +3,7 @@ AI provider abstraction for PDF to Markdown conversion
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, List, Dict, Any
 import os
 
 
@@ -23,6 +23,26 @@ class AIProvider(ABC):
             Converted markdown text
         """
         pass
+
+    @abstractmethod
+    def convert_to_markdown_vision(
+        self,
+        pages: List[Dict[str, Any]],
+        max_tokens: int
+    ) -> str:
+        """
+        Convert pages with vision data to markdown using the AI provider.
+
+        Args:
+            pages: List of page dicts with 'text' and 'image_base64' keys
+            max_tokens: Maximum tokens for response
+
+        Returns:
+            Converted markdown text
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support vision mode"
+        )
 
     @abstractmethod
     def validate_config(self) -> bool:
@@ -88,6 +108,81 @@ Text to convert:
 
         return message.content[0].text
 
+    def convert_to_markdown_vision(
+        self,
+        pages: List[Dict[str, Any]],
+        max_tokens: int
+    ) -> str:
+        """Convert pages with vision data to markdown using Claude API"""
+        # Build multimodal content blocks
+        content_blocks = []
+
+        # Add instruction text first
+        instruction = """Convert these PDF pages to clean, well-structured markdown.
+
+I'm providing both the page image and extracted text for each page. Use the IMAGE to understand layout, structure, tables, charts, and visual hierarchy. Use the TEXT to reduce hallucination and get accurate content.
+
+Requirements:
+- Use proper heading hierarchy (# for main titles, ## for sections, ### for subsections)
+- **TABLES ARE CRITICAL**: Look carefully at the images for ANY tabular data (rows and columns). Tables often have:
+  * Grid lines or borders
+  * Aligned columns of text
+  * Header rows with column titles
+  * Question/Answer pairs in columns
+  * Data organized in rows and columns
+- When you detect tables:
+  * Create proper markdown tables with | separators
+  * Use the image to understand column structure and alignment
+  * If a table spans multiple pages, MERGE it into ONE continuous table (don't repeat headers)
+  * Preserve all rows and columns exactly as shown
+- **REMOVE REPETITIVE ELEMENTS**: Page headers, footers, and contact information that repeat on every page should only appear ONCE in the output
+- For charts/diagrams: describe them clearly in markdown
+- Preserve visual formatting cues (bold sections, indentation, callouts)
+- Handle multi-column layouts properly
+- Preserve all information - don't summarize
+
+Output ONLY the markdown - no explanations or commentary.
+
+---
+"""
+        content_blocks.append({
+            "type": "text",
+            "text": instruction
+        })
+
+        # Add each page's image and text
+        for page in pages:
+            page_num = page['page_num'] + 1  # Convert to 1-indexed for display
+
+            # Add page image
+            content_blocks.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": page['image_base64']
+                }
+            })
+
+            # Add extracted text with context
+            text_block = f"\n**Extracted text from page {page_num}:**\n\n{page['text']}\n\n---\n"
+            content_blocks.append({
+                "type": "text",
+                "text": text_block
+            })
+
+        # Make API call
+        message = self.client.messages.create(
+            model=self.model,
+            max_tokens=max_tokens,
+            messages=[{
+                "role": "user",
+                "content": content_blocks
+            }]
+        )
+
+        return message.content[0].text
+
     def validate_config(self) -> bool:
         """Validate Anthropic API key"""
         return bool(self.api_key and self.api_key != "your-api-key-here")
@@ -141,6 +236,79 @@ Text to convert:
             messages=[{
                 "role": "user",
                 "content": prompt
+            }]
+        )
+
+        return response.choices[0].message.content
+
+    def convert_to_markdown_vision(
+        self,
+        pages: List[Dict[str, Any]],
+        max_tokens: int
+    ) -> str:
+        """Convert pages with vision data to markdown using OpenAI API"""
+        # Build multimodal content blocks
+        content_parts = []
+
+        # Add instruction text first
+        instruction = """Convert these PDF pages to clean, well-structured markdown.
+
+I'm providing both the page image and extracted text for each page. Use the IMAGE to understand layout, structure, tables, charts, and visual hierarchy. Use the TEXT to reduce hallucination and get accurate content.
+
+Requirements:
+- Use proper heading hierarchy (# for main titles, ## for sections, ### for subsections)
+- **TABLES ARE CRITICAL**: Look carefully at the images for ANY tabular data (rows and columns). Tables often have:
+  * Grid lines or borders
+  * Aligned columns of text
+  * Header rows with column titles
+  * Question/Answer pairs in columns
+  * Data organized in rows and columns
+- When you detect tables:
+  * Create proper markdown tables with | separators
+  * Use the image to understand column structure and alignment
+  * If a table spans multiple pages, MERGE it into ONE continuous table (don't repeat headers)
+  * Preserve all rows and columns exactly as shown
+- **REMOVE REPETITIVE ELEMENTS**: Page headers, footers, and contact information that repeat on every page should only appear ONCE in the output
+- For charts/diagrams: describe them clearly in markdown
+- Preserve visual formatting cues (bold sections, indentation, callouts)
+- Handle multi-column layouts properly
+- Preserve all information - don't summarize
+
+Output ONLY the markdown - no explanations or commentary.
+
+---
+"""
+        content_parts.append({
+            "type": "text",
+            "text": instruction
+        })
+
+        # Add each page's image and text
+        for page in pages:
+            page_num = page['page_num'] + 1  # Convert to 1-indexed for display
+
+            # Add page image
+            content_parts.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/png;base64,{page['image_base64']}"
+                }
+            })
+
+            # Add extracted text with context
+            text_block = f"\n**Extracted text from page {page_num}:**\n\n{page['text']}\n\n---\n"
+            content_parts.append({
+                "type": "text",
+                "text": text_block
+            })
+
+        # Make API call
+        response = self.client.chat.completions.create(
+            model=self.model,
+            max_tokens=max_tokens,
+            messages=[{
+                "role": "user",
+                "content": content_parts
             }]
         )
 
