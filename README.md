@@ -1,225 +1,342 @@
 # PDF to Markdown Converter
 
-Convert PDF documents to clean, well-structured Markdown using LLM-assisted processing powered by Claude API.
+Convert PDF documents to clean, well-structured Markdown using LLM-assisted processing. Powered by Antrhopic and OpenAI models for intelligent extraction of text, tables, and complex layouts.
 
 ## Features
 
+- **Vision Mode**: Enhanced extraction using multimodal AI for complex layouts, tables, charts, and diagrams
 - **Multi-Provider Support**: Use Anthropic (Claude) or OpenAI (GPT) models
-- **Vision Mode**: Enhanced extraction using image analysis for complex layouts, tables, and charts
-- **Smart Conversion**: Intelligently converts PDF content to clean markdown with LLM assistance
+- **Smart Conversion**: Intelligently converts PDF content to clean markdown with proper formatting
 - **Large File Support**: Automatically chunks large PDFs for optimal processing
 - **Batch Processing**: Convert entire folders of PDFs with preserved directory structure
-- **Format Cleanup**: Removes PDF artifacts, fixes spacing, and ensures proper formatting
-- **Table Preservation**: Converts tables to proper markdown table format with vision-enhanced accuracy
+- **Table Preservation**: Accurately converts tables to markdown format with vision-enhanced detection
 - **Structure Detection**: Automatically generates appropriate heading hierarchy
 - **Dual Interface**: Use as both a CLI tool and a Python library
 
-## Requirements
+## Quick Start
 
-- Python 3.9 or higher
-- API key for at least one provider:
-  - Anthropic API key (for Claude models)
-  - OpenAI API key (for GPT models)
+```bash
+# 1. Install with uv (recommended - faster)
+uv tool install pdf-to-md-llm
+
+# 2. Set your API key
+export ANTHROPIC_API_KEY='your-api-key-here'
+
+# 3. Convert a PDF
+pdf-to-md-llm convert document.pdf --vision
+```
 
 ## Installation
 
-### From PyPI (Recommended)
+### Using uv (Recommended)
+
+[uv](https://github.com/astral-sh/uv) is a fast Python package installer:
+
+```bash
+# Install the package as a tool
+uv tool install pdf-to-md-llm
+
+# Or run directly without installing
+uvx pdf-to-md-llm convert document.pdf
+```
+
+### Using pip (Alternative)
 
 ```bash
 pip install pdf-to-md-llm
 ```
 
-### From Source
-
-This project uses [uv](https://github.com/astral-sh/uv) for dependency management:
-
-```bash
-# Clone the repository
-git clone https://github.com/densom/pdf-to-md-llm.git
-cd pdf-to-md-llm
-
-# Install dependencies
-uv sync
-```
-
 ## Configuration
 
-Create a `.env.local` file in the project root with your API key(s):
+Set your API key for at least one provider:
 
 ```bash
-# For Anthropic (Claude)
-ANTHROPIC_API_KEY=your-anthropic-api-key-here
+# For Anthropic (Claude) - recommended
+export ANTHROPIC_API_KEY='your-anthropic-api-key-here'
 
 # For OpenAI (GPT)
-OPENAI_API_KEY=your-openai-api-key-here
-```
-
-Or set the environment variables directly:
-
-```bash
-export ANTHROPIC_API_KEY='your-anthropic-api-key-here'
 export OPENAI_API_KEY='your-openai-api-key-here'
 ```
 
-## Usage
-
-### As a Command-Line Tool
-
-After installation via pip, the `pdf-to-md-llm` command will be available:
-
-#### Single File Conversion
+Or create a `.env.local` file:
 
 ```bash
-# Convert with auto-generated output filename (uses Anthropic by default)
+ANTHROPIC_API_KEY=your-anthropic-api-key-here
+OPENAI_API_KEY=your-openai-api-key-here
+```
+
+## Usage Examples
+
+### Basic Conversion
+
+```bash
+# Simple document conversion
 pdf-to-md-llm convert document.pdf
 
-# Convert with custom output filename
+# Specify output filename
 pdf-to-md-llm convert document.pdf output.md
-
-# Convert with vision mode (recommended for complex layouts and tables)
-pdf-to-md-llm convert document.pdf --vision
-
-# Use OpenAI instead of Anthropic
-pdf-to-md-llm convert document.pdf --provider openai --vision
-
-# Custom chunk size for vision mode
-pdf-to-md-llm convert document.pdf --vision --vision-pages-per-chunk 6
-
-# Specify model
-pdf-to-md-llm convert document.pdf --provider anthropic --model claude-sonnet-4-20250514
 ```
 
-#### Batch Conversion
+### Scenario 1: Academic Papers with Tables
+
+For research papers, technical documents, or any PDF with complex tables:
 
 ```bash
-# Convert all PDFs in a folder (output to same folder)
-pdf-to-md-llm batch ./input-folder
-
-# Convert with custom output folder
-pdf-to-md-llm batch ./input-folder ./output-folder
-
-# Batch convert with vision mode
-pdf-to-md-llm batch ./input-folder --vision
-
-# Batch convert with OpenAI
-pdf-to-md-llm batch ./input-folder --provider openai --vision
+# Vision mode provides superior table extraction
+pdf-to-md-llm convert research-paper.pdf --vision
 ```
 
-#### Alternative: Run as Python Module
+### Scenario 2: Large Documents (500+ pages)
+
+For textbooks, manuals, or large documents, use smaller chunks for better processing:
 
 ```bash
-python -m pdf_to_md_llm convert document.pdf
-python -m pdf_to_md_llm batch ./input-folder
+# Reduce chunk size for memory efficiency
+pdf-to-md-llm convert textbook.pdf --vision --vision-pages-per-chunk 4
 ```
 
-#### Getting Help
+### Scenario 3: Documents with Charts and Diagrams
+
+For PDFs containing visual elements like charts, graphs, or diagrams:
 
 ```bash
-# Show general help
+# Vision mode analyzes images and describes visual content
+pdf-to-md-llm convert annual-report.pdf --vision --vision-dpi 200
+```
+
+### Scenario 4: Using OpenAI GPT Models
+
+Switch to OpenAI for different model capabilities:
+
+```bash
+# Use GPT-4o for conversion
+pdf-to-md-llm convert document.pdf --provider openai --model gpt-4o --vision
+
+# Use GPT-4o-mini for cost savings
+pdf-to-md-llm convert document.pdf --provider openai --model gpt-4o-mini
+```
+
+### Scenario 5: Batch Processing Multiple Documents
+
+Convert entire folders of PDFs:
+
+```bash
+# Convert all PDFs in a folder
+pdf-to-md-llm batch ./research-papers
+
+# With custom output folder and vision mode
+pdf-to-md-llm batch ./input-pdfs ./output-markdown --vision
+
+# Batch with OpenAI
+pdf-to-md-llm batch ./pdfs --provider openai --vision
+```
+
+### Scenario 6: Simple Text Documents
+
+For PDFs with simple text layout (no tables or complex formatting), standard mode is faster and more cost-effective:
+
+```bash
+# Standard mode (no vision) - faster and cheaper
+pdf-to-md-llm convert simple-doc.pdf
+
+# Adjust chunk size for standard mode
+pdf-to-md-llm convert simple-doc.pdf --pages-per-chunk 10
+```
+
+### Getting Help
+
+```bash
+# Show all available options
 pdf-to-md-llm --help
 
-# Show help for a specific command
+# Show help for specific commands
 pdf-to-md-llm convert --help
 pdf-to-md-llm batch --help
 ```
 
-### As a Python Library
+## Using as a Python Library
+
+First, add the package to your project:
+
+```bash
+# Using uv (recommended)
+uv add pdf-to-md-llm
+
+# Or using pip
+pip install pdf-to-md-llm
+```
+
+Then import and use in your Python code:
 
 ```python
 from pdf_to_md_llm import convert_pdf_to_markdown, batch_convert
 
-# Convert a single PDF with vision mode (recommended)
+# Convert with vision mode (recommended for complex layouts)
 markdown_content = convert_pdf_to_markdown(
     pdf_path="document.pdf",
     output_path="output.md",  # Optional
-    provider="anthropic",  # Optional: 'anthropic' or 'openai'
-    use_vision=True,  # Optional: enables vision mode for better table extraction
-    pages_per_chunk=8,  # Optional: pages per chunk (vision mode default: 8)
-    api_key="your-api-key",  # Optional, uses provider-specific env var by default
-    verbose=True  # Optional: print progress
+    provider="anthropic",  # 'anthropic' or 'openai'
+    use_vision=True,  # Enable vision mode
+    pages_per_chunk=8,  # Pages per chunk (vision default: 8)
+    verbose=True  # Show progress
 )
 
-# Convert with OpenAI
+# Use OpenAI with custom model
 markdown_content = convert_pdf_to_markdown(
     pdf_path="document.pdf",
     provider="openai",
-    model="gpt-4o",  # Optional: specify model
+    model="gpt-4o",
     use_vision=True,
-    api_key="your-openai-key"
+    api_key="your-openai-key"  # Optional if env var set
 )
 
 # Batch convert all PDFs in a folder
 batch_convert(
     input_folder="./pdfs",
     output_folder="./markdown",  # Optional
-    provider="anthropic",  # Optional
-    use_vision=True,  # Optional: vision mode for all conversions
-    pages_per_chunk=8,  # Optional
-    api_key="your-api-key",  # Optional
-    verbose=True  # Optional
+    provider="anthropic",
+    use_vision=True,
+    verbose=True
 )
 ```
 
 ### Advanced Library Usage
 
 ```python
-from pdf_to_md_llm import extract_text_from_pdf, chunk_pages
+from pdf_to_md_llm import extract_text_from_pdf, extract_pages_with_vision, chunk_pages
 
-# Extract text from PDF (returns list of page strings)
+# Extract text only (standard mode)
 pages = extract_text_from_pdf("document.pdf")
 print(f"Found {len(pages)} pages")
 
-# Chunk pages for processing
+# Extract with vision data (text + images)
+vision_pages = extract_pages_with_vision("document.pdf", dpi=150)
+for page in vision_pages:
+    print(f"Page {page['page_num']}: has_tables={page['has_tables']}, has_images={page['has_images']}")
+
+# Create custom chunks
 chunks = chunk_pages(pages, pages_per_chunk=5)
 print(f"Created {len(chunks)} chunks")
-
-# Process chunks with your own logic...
 ```
 
 ## How It Works
 
 ### Standard Mode
+
 1. **Text Extraction**: Extracts text from PDF using PyMuPDF
 2. **Chunking**: Breaks content into manageable chunks (default: 5 pages per chunk)
 3. **LLM Processing**: Sends each chunk to your chosen AI provider for intelligent markdown conversion
 4. **Reassembly**: Combines all chunks into a single, formatted markdown document
 
 ### Vision Mode (Recommended)
-1. **Text + Image Extraction**: Extracts both text and renders page images from PDF
-2. **Smart Chunking**: Groups pages into larger chunks (default: 8 pages per chunk) for better context
-3. **Multimodal Processing**: Sends both images and text to vision-capable models for superior layout understanding
-4. **Enhanced Accuracy**: Better table detection, chart description, and layout preservation
-5. **Reassembly**: Combines chunks with deduplication of headers/footers
 
-## Configuration Options
+1. **Multimodal Extraction**: Extracts both text and renders page images from PDF
+2. **Smart Chunking**: Groups pages into larger chunks (default: 8 pages) for better context
+3. **Visual Analysis**: AI analyzes both text and images for superior layout understanding
+4. **Enhanced Accuracy**: Better detection of tables, charts, diagrams, and complex layouts
+5. **Reassembly**: Combines chunks with intelligent deduplication of headers/footers
 
-Default values in `converter.py`:
+**When to use Vision Mode:**
+- Documents with tables or complex layouts
+- PDFs containing charts, diagrams, or visual elements
+- Academic papers or technical documentation
+- Any document where layout matters
 
-- `DEFAULT_PROVIDER`: AI provider (default: `anthropic`)
-- `DEFAULT_MODEL`: Model for Anthropic (default: `claude-sonnet-4-20250514`)
-- `DEFAULT_MAX_TOKENS`: Maximum tokens per API call (default: 4000)
-- `DEFAULT_PAGES_PER_CHUNK`: Pages per chunk for standard mode (default: 5)
-- `DEFAULT_VISION_PAGES_PER_CHUNK`: Pages per chunk for vision mode (default: 8)
-- `DEFAULT_VISION_DPI`: Image rendering DPI for vision mode (default: 150)
+## Performance Tips
 
-## Dependencies
+### Choosing Between Standard and Vision Mode
 
-- **anthropic**: Claude API client (optional, for Anthropic provider)
-- **openai**: OpenAI API client (optional, for OpenAI provider)
-- **pymupdf**: PDF text and image extraction
-- **python-dotenv**: Environment variable management
-- **click**: CLI framework
+**Use Vision Mode when:**
+- PDF contains tables, charts, or diagrams
+- Layout and formatting are important
+- You need accurate table extraction
+- Document has complex multi-column layouts
 
-## Output Format
+**Use Standard Mode when:**
+- Simple text-only documents
+- Speed and cost are priorities
+- Document has straightforward single-column layout
 
-Converted markdown files include:
+### Chunk Size Optimization
 
-- Document title header
-- Clean heading hierarchy
-- Properly formatted tables
-- Organized lists
-- Removed page numbers and PDF artifacts
-- Conversion metadata
+**Larger chunks (8-10 pages):**
+- Better context for the AI model
+- More efficient API usage
+- Better for documents with consistent formatting
+- Default for vision mode
+
+**Smaller chunks (3-5 pages):**
+- Better for very large documents (500+ pages)
+- Reduces memory usage
+- Helpful when hitting API token limits
+- Default for standard mode
+
+### Vision Mode Settings
+
+**DPI Settings:**
+- Default (150 DPI): Good balance of quality and performance
+- High quality (200-300 DPI): For small text or detailed diagrams
+- Lower (100 DPI): Faster processing, suitable for simple layouts
+
+**Adjusting chunk size in vision mode:**
+```bash
+# Smaller chunks for very large documents
+pdf-to-md-llm convert large.pdf --vision --vision-pages-per-chunk 4
+
+# Larger chunks for better context
+pdf-to-md-llm convert doc.pdf --vision --vision-pages-per-chunk 12
+```
+
+## Troubleshooting
+
+### API Key Errors
+
+**Error:** `ValueError: API key not found`
+
+**Solution:**
+- Verify your API key is set in environment variables
+- Check the key name matches your provider (ANTHROPIC_API_KEY or OPENAI_API_KEY)
+- Ensure the key is valid and not expired
+
+### Rate Limiting
+
+**Error:** API rate limit exceeded
+
+**Solution:**
+- Reduce chunk size to make smaller API requests
+- Add delays between batch conversions
+- Upgrade your API plan for higher limits
+- Switch providers if one is experiencing issues
+
+### Large File Issues
+
+**Error:** Memory errors or timeouts on large PDFs
+
+**Solution:**
+- Use smaller chunk sizes: `--vision-pages-per-chunk 3`
+- Process in batches by splitting the PDF first
+- Use standard mode instead of vision for simple documents
+- Increase available system memory
+
+### Vision Mode Memory Issues
+
+**Error:** Out of memory when using vision mode
+
+**Solution:**
+- Reduce DPI: `--vision-dpi 100`
+- Use smaller chunks: `--vision-pages-per-chunk 4`
+- Process fewer pages at once
+- Close other applications to free memory
+
+### Poor Quality Output
+
+**Problem:** Markdown output has formatting issues
+
+**Solution:**
+- Try vision mode for better layout detection: `--vision`
+- Increase DPI for better image quality: `--vision-dpi 200`
+- Try different models: `--provider openai --model gpt-4o`
+- Adjust chunk size for better context
 
 ## API Reference
 
@@ -247,18 +364,18 @@ Convert a single PDF to markdown.
 **Parameters:**
 - `pdf_path`: Path to the PDF file
 - `output_path`: Optional output file path (defaults to PDF name with .md extension)
-- `pages_per_chunk`: Number of pages to process per API call (default: 5 for standard, 8 for vision)
-- `provider`: AI provider to use - 'anthropic' or 'openai' (default: 'anthropic')
+- `pages_per_chunk`: Number of pages per API call (default: 5 for standard, 8 for vision)
+- `provider`: AI provider - 'anthropic' or 'openai' (default: 'anthropic')
 - `api_key`: API key (defaults to provider-specific environment variable)
-- `model`: Model to use (optional, uses provider defaults if not specified)
+- `model`: Model to use (optional, uses provider defaults)
 - `max_tokens`: Maximum tokens per API call (default: 4000)
 - `verbose`: Print progress messages (default: True)
-- `use_vision`: Enable vision mode for better layout/table extraction (default: False)
-- `vision_dpi`: DPI for rendering page images in vision mode (default: 150)
+- `use_vision`: Enable vision mode for better extraction (default: False)
+- `vision_dpi`: DPI for page images in vision mode (default: 150)
 
 **Returns:** The complete markdown content as a string
 
-**Raises:** `ValueError` if API key is not provided or provider is invalid
+**Raises:** `ValueError` if API key is missing or provider is invalid
 
 #### `batch_convert()`
 
@@ -290,7 +407,7 @@ Convert all PDFs in a folder to markdown.
 def extract_text_from_pdf(pdf_path: str) -> List[str]
 ```
 
-Extract raw text from PDF.
+Extract raw text from PDF (standard mode).
 
 **Returns:** List of strings, one per page
 
@@ -300,7 +417,7 @@ Extract raw text from PDF.
 def extract_pages_with_vision(pdf_path: str, dpi: int = 150) -> List[Dict[str, Any]]
 ```
 
-Extract both text and images from PDF pages for vision-based processing.
+Extract text and images from PDF pages for vision processing.
 
 **Returns:** List of dicts with keys: `page_num`, `text`, `image_base64`, `has_images`, `has_tables`
 
@@ -314,59 +431,33 @@ Combine pages into chunks for processing.
 
 **Returns:** List of combined page chunks
 
-## Publishing to PyPI
+## Output Format
 
-### For Package Maintainers
+Converted markdown files include:
 
-This project uses automated GitHub Actions workflows for publishing to PyPI.
+- Document title header
+- Clean heading hierarchy
+- Properly formatted tables
+- Organized lists
+- Removed page numbers and PDF artifacts
+- Conversion metadata footer
 
-#### Production Releases (Automatic)
+## Requirements
 
-Publishing to PyPI happens automatically when commits are pushed or merged to the `main` branch:
+- Python 3.9 or higher
+- API key for at least one provider:
+  - Anthropic API key (for Claude models)
+  - OpenAI API key (for GPT models)
 
-1. **Update version numbers:**
-   - Update version in `pyproject.toml`
-   - Update version in `pdf_to_md_llm/__init__.py`
-   - Ensure both versions match
+## Dependencies
 
-2. **Merge to main:**
-   - Create a PR with your changes
-   - Merge to `main` branch
-   - The workflow automatically builds and publishes to PyPI
+All dependencies are automatically installed:
 
-3. **Verify:**
-   - Check the GitHub Actions tab for workflow status
-   - Visit [pypi.org/project/pdf-to-md-llm/](https://pypi.org/project/pdf-to-md-llm/)
-
-#### Test Releases (Manual)
-
-For testing before production release:
-
-1. Go to GitHub Actions tab
-2. Select "Publish to Test PyPI" workflow
-3. Click "Run workflow"
-4. Optionally provide a test version (e.g., `0.1.1-test1`)
-5. Install from Test PyPI to verify:
-   ```bash
-   pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ pdf-to-md-llm
-   ```
-
-#### Local Build Testing
-
-To test the build process locally without publishing:
-
-```bash
-# Install uv
-pip install uv
-
-# Build the package
-uv build
-
-# Check the built files
-ls -la dist/
-```
-
-For complete setup instructions, see [.github/PUBLISHING.md](.github/PUBLISHING.md)
+- **anthropic**: Claude API client (for Anthropic provider)
+- **openai**: OpenAI API client (for OpenAI provider)
+- **pymupdf**: PDF text and image extraction
+- **python-dotenv**: Environment variable management
+- **click**: CLI framework
 
 ## License
 
@@ -374,4 +465,6 @@ This project is open source and available under the MIT License.
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, testing, and contribution guidelines.
+
+For bug reports and feature requests, please open an issue on [GitHub](https://github.com/densom/pdf-to-md-llm/issues).
