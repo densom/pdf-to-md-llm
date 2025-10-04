@@ -4,14 +4,17 @@ PDF to Markdown conversion functions
 
 import pymupdf  # PyMuPDF
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from .providers import AIProvider, get_provider
+import base64
 
 # Default configuration
 DEFAULT_PROVIDER = "anthropic"
 DEFAULT_MODEL = "claude-sonnet-4-20250514"
 DEFAULT_MAX_TOKENS = 4000
 DEFAULT_PAGES_PER_CHUNK = 5
+DEFAULT_VISION_DPI = 150
+DEFAULT_VISION_PAGES_PER_CHUNK = 2
 
 
 def extract_text_from_pdf(pdf_path: str) -> List[str]:
@@ -36,6 +39,64 @@ def extract_text_from_pdf(pdf_path: str) -> List[str]:
     return pages
 
 
+def extract_pages_with_vision(
+    pdf_path: str,
+    dpi: int = DEFAULT_VISION_DPI
+) -> List[Dict[str, Any]]:
+    """
+    Extract both text and images from PDF pages for vision-based processing.
+
+    Args:
+        pdf_path: Path to the PDF file
+        dpi: DPI for rendering page images (default: 150)
+
+    Returns:
+        List of dicts with keys:
+            - page_num: Page number (0-indexed)
+            - text: Extracted text
+            - image_base64: Base64-encoded PNG image of the page
+            - has_images: Whether page contains embedded images
+            - has_tables: Whether page likely contains tables
+    """
+    doc = pymupdf.open(pdf_path)
+    pages = []
+
+    for page_num in range(len(doc)):
+        page = doc[page_num]
+
+        # Extract text
+        text = page.get_text()
+
+        # Render page as image
+        # Calculate zoom factor for desired DPI (default PDF is 72 DPI)
+        zoom = dpi / 72.0
+        mat = pymupdf.Matrix(zoom, zoom)
+        pix = page.get_pixmap(matrix=mat)
+
+        # Convert to PNG bytes (using PyMuPDF's native method)
+        img_bytes = pix.tobytes(output="png")
+
+        # Encode to base64
+        image_base64 = base64.b64encode(img_bytes).decode('utf-8')
+
+        # Detect if page has images
+        has_images = len(page.get_images()) > 0
+
+        # Heuristic for table detection: check for multiple tab characters or grid-like text
+        has_tables = text.count('\t') > 5 or text.count('|') > 5
+
+        pages.append({
+            'page_num': page_num,
+            'text': text,
+            'image_base64': image_base64,
+            'has_images': has_images,
+            'has_tables': has_tables
+        })
+
+    doc.close()
+    return pages
+
+
 def chunk_pages(pages: List[str], pages_per_chunk: int) -> List[str]:
     """
     Combine pages into chunks for processing.
@@ -50,6 +111,27 @@ def chunk_pages(pages: List[str], pages_per_chunk: int) -> List[str]:
     chunks = []
     for i in range(0, len(pages), pages_per_chunk):
         chunk = "\n\n".join(pages[i:i + pages_per_chunk])
+        chunks.append(chunk)
+    return chunks
+
+
+def chunk_vision_pages(
+    pages: List[Dict[str, Any]],
+    pages_per_chunk: int
+) -> List[List[Dict[str, Any]]]:
+    """
+    Group vision-extracted pages into chunks for processing.
+
+    Args:
+        pages: List of page dicts from extract_pages_with_vision
+        pages_per_chunk: Number of pages to combine per chunk
+
+    Returns:
+        List of page chunks (each chunk is a list of page dicts)
+    """
+    chunks = []
+    for i in range(0, len(pages), pages_per_chunk):
+        chunk = pages[i:i + pages_per_chunk]
         chunks.append(chunk)
     return chunks
 
@@ -73,6 +155,25 @@ def convert_chunk_to_markdown(
     return provider.convert_to_markdown(chunk, max_tokens)
 
 
+def convert_vision_chunk_to_markdown(
+    provider: AIProvider,
+    chunk: List[Dict[str, Any]],
+    max_tokens: int = DEFAULT_MAX_TOKENS
+) -> str:
+    """
+    Send a chunk of pages with vision data to AI provider for markdown conversion.
+
+    Args:
+        provider: AI provider instance
+        chunk: List of page dicts with text and image data
+        max_tokens: Maximum tokens for response
+
+    Returns:
+        Converted markdown text
+    """
+    return provider.convert_to_markdown_vision(chunk, max_tokens)
+
+
 def convert_pdf_to_markdown(
     pdf_path: str,
     output_path: Optional[str] = None,
@@ -81,7 +182,9 @@ def convert_pdf_to_markdown(
     api_key: Optional[str] = None,
     model: Optional[str] = None,
     max_tokens: int = DEFAULT_MAX_TOKENS,
-    verbose: bool = True
+    verbose: bool = True,
+    use_vision: bool = False,
+    vision_dpi: int = DEFAULT_VISION_DPI
 ) -> str:
     """
     Convert a PDF file to markdown using an AI provider.
@@ -95,6 +198,8 @@ def convert_pdf_to_markdown(
         model: Model to use (optional, uses provider defaults if not specified)
         max_tokens: Maximum tokens per API call
         verbose: Print progress messages
+        use_vision: Use vision-based processing (images + text)
+        vision_dpi: DPI for rendering page images when using vision mode
 
     Returns:
         Complete markdown document
@@ -109,6 +214,7 @@ def convert_pdf_to_markdown(
         print(f"Processing: {pdf_path}")
         print(f"Using provider: {provider}")
         print(f"Using model: {ai_provider.model}")
+        print(f"Vision mode: {'enabled' if use_vision else 'disabled'}")
 
     # Validate provider configuration
     if not ai_provider.validate_config():
@@ -118,30 +224,64 @@ def convert_pdf_to_markdown(
             f"Pass api_key parameter or set {provider_upper}_API_KEY environment variable."
         )
 
-    # Extract text from PDF
-    if verbose:
-        print("Extracting text from PDF...")
-    pages = extract_text_from_pdf(pdf_path)
-    if verbose:
-        print(f"  Found {len(pages)} pages")
+    # Check if vision mode is supported
+    if use_vision and not hasattr(ai_provider, 'convert_to_markdown_vision'):
+        raise ValueError(f"Vision mode is not supported by {provider} provider")
 
-    # Chunk the pages
-    chunks = chunk_pages(pages, pages_per_chunk)
-    if verbose:
-        print(f"  Created {len(chunks)} chunks")
-
-    # Convert each chunk
-    markdown_chunks = []
-    for i, chunk in enumerate(chunks, 1):
+    # Extract from PDF
+    if use_vision:
         if verbose:
-            print(f"  Converting chunk {i}/{len(chunks)}...")
-        try:
-            markdown = convert_chunk_to_markdown(ai_provider, chunk, max_tokens)
-            markdown_chunks.append(markdown)
-        except Exception as e:
+            print(f"Extracting text and images from PDF (DPI: {vision_dpi})...")
+        vision_pages = extract_pages_with_vision(pdf_path, dpi=vision_dpi)
+        if verbose:
+            print(f"  Found {len(vision_pages)} pages")
+            images_count = sum(1 for p in vision_pages if p['has_images'])
+            tables_count = sum(1 for p in vision_pages if p['has_tables'])
+            print(f"  Detected {images_count} pages with images, {tables_count} pages with tables")
+
+        # Use smaller chunks for vision mode (default 2 pages per chunk)
+        effective_pages_per_chunk = min(pages_per_chunk, DEFAULT_VISION_PAGES_PER_CHUNK)
+        chunks = chunk_vision_pages(vision_pages, effective_pages_per_chunk)
+        if verbose:
+            print(f"  Created {len(chunks)} chunks ({effective_pages_per_chunk} pages per chunk)")
+
+        # Convert each chunk using vision
+        markdown_chunks = []
+        for i, chunk in enumerate(chunks, 1):
             if verbose:
-                print(f"  Error converting chunk {i}: {e}")
-            markdown_chunks.append(f"\n\n<!-- Error converting chunk {i}: {e} -->\n\n")
+                print(f"  Converting chunk {i}/{len(chunks)} (vision mode)...")
+            try:
+                markdown = convert_vision_chunk_to_markdown(ai_provider, chunk, max_tokens)
+                markdown_chunks.append(markdown)
+            except Exception as e:
+                if verbose:
+                    print(f"  Error converting chunk {i}: {e}")
+                markdown_chunks.append(f"\n\n<!-- Error converting chunk {i}: {e} -->\n\n")
+    else:
+        # Original text-only mode
+        if verbose:
+            print("Extracting text from PDF...")
+        pages = extract_text_from_pdf(pdf_path)
+        if verbose:
+            print(f"  Found {len(pages)} pages")
+
+        # Chunk the pages
+        chunks = chunk_pages(pages, pages_per_chunk)
+        if verbose:
+            print(f"  Created {len(chunks)} chunks")
+
+        # Convert each chunk
+        markdown_chunks = []
+        for i, chunk in enumerate(chunks, 1):
+            if verbose:
+                print(f"  Converting chunk {i}/{len(chunks)}...")
+            try:
+                markdown = convert_chunk_to_markdown(ai_provider, chunk, max_tokens)
+                markdown_chunks.append(markdown)
+            except Exception as e:
+                if verbose:
+                    print(f"  Error converting chunk {i}: {e}")
+                markdown_chunks.append(f"\n\n<!-- Error converting chunk {i}: {e} -->\n\n")
 
     # Combine all chunks
     full_markdown = "\n\n---\n\n".join(markdown_chunks)
@@ -165,7 +305,7 @@ def convert_pdf_to_markdown(
         f.write(full_markdown)
 
     if verbose:
-        print(f"✓ Saved to: {output_path}")
+        print(f"Saved to: {output_path}")
 
     return full_markdown
 
@@ -178,7 +318,9 @@ def batch_convert(
     api_key: Optional[str] = None,
     model: Optional[str] = None,
     max_tokens: int = DEFAULT_MAX_TOKENS,
-    verbose: bool = True
+    verbose: bool = True,
+    use_vision: bool = False,
+    vision_dpi: int = DEFAULT_VISION_DPI
 ) -> None:
     """
     Convert all PDF files in a folder and its subdirectories to markdown.
@@ -192,6 +334,8 @@ def batch_convert(
         model: Model to use (optional, uses provider defaults if not specified)
         max_tokens: Maximum tokens per API call
         verbose: Print progress messages
+        use_vision: Use vision-based processing (images + text)
+        vision_dpi: DPI for rendering page images when using vision mode
 
     Raises:
         ValueError: If API key is not provided and not in environment
@@ -234,12 +378,14 @@ def batch_convert(
                 api_key=api_key,
                 model=model,
                 max_tokens=max_tokens,
-                verbose=verbose
+                verbose=verbose,
+                use_vision=use_vision,
+                vision_dpi=vision_dpi
             )
         except Exception as e:
             if verbose:
-                print(f"✗ Failed: {e}")
+                print(f"Failed: {e}")
 
     if verbose:
-        print(f"\n✓ Batch conversion complete!")
+        print(f"\nBatch conversion complete!")
         print(f"  Output directory: {output_path}")

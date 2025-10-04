@@ -10,7 +10,8 @@ from .converter import (
     convert_pdf_to_markdown,
     batch_convert,
     DEFAULT_PAGES_PER_CHUNK,
-    DEFAULT_PROVIDER
+    DEFAULT_PROVIDER,
+    DEFAULT_VISION_DPI
 )
 
 # Load environment variables from .env file
@@ -46,12 +47,20 @@ def cli(ctx):
               help='API key for the provider (optional, uses environment variable if not specified)')
 @click.option('--pages-per-chunk', default=DEFAULT_PAGES_PER_CHUNK, type=int,
               help=f'Number of pages to process per API call (default: {DEFAULT_PAGES_PER_CHUNK})')
-def convert(pdf_file, output_file, provider, model, api_key, pages_per_chunk):
+@click.option('--vision/--no-vision', default=False,
+              help='Enable vision mode for better layout/table/chart extraction (recommended)')
+@click.option('--vision-dpi', default=DEFAULT_VISION_DPI, type=int,
+              help=f'DPI for rendering page images in vision mode (default: {DEFAULT_VISION_DPI})')
+def convert(pdf_file, output_file, provider, model, api_key, pages_per_chunk, vision, vision_dpi):
     """Convert a single PDF file to markdown.
 
     PDF_FILE: Path to the PDF file to convert
 
     OUTPUT_FILE: Optional output path (defaults to same name with .md extension)
+
+    Vision mode provides significantly better results for documents with complex layouts,
+    tables, charts, or multi-column formats. It uses ~2-3x more tokens but delivers
+    superior quality.
     """
     convert_pdf_to_markdown(
         pdf_file,
@@ -59,7 +68,9 @@ def convert(pdf_file, output_file, provider, model, api_key, pages_per_chunk):
         pages_per_chunk=pages_per_chunk,
         provider=provider.lower(),
         api_key=api_key,
-        model=model
+        model=model,
+        use_vision=vision,
+        vision_dpi=vision_dpi
     )
 
 
@@ -74,12 +85,20 @@ def convert(pdf_file, output_file, provider, model, api_key, pages_per_chunk):
               help='API key for the provider (optional, uses environment variable if not specified)')
 @click.option('--pages-per-chunk', default=DEFAULT_PAGES_PER_CHUNK, type=int,
               help=f'Number of pages to process per API call (default: {DEFAULT_PAGES_PER_CHUNK})')
-def batch(input_folder, output_folder, provider, model, api_key, pages_per_chunk):
+@click.option('--vision/--no-vision', default=False,
+              help='Enable vision mode for better layout/table/chart extraction (recommended)')
+@click.option('--vision-dpi', default=DEFAULT_VISION_DPI, type=int,
+              help=f'DPI for rendering page images in vision mode (default: {DEFAULT_VISION_DPI})')
+def batch(input_folder, output_folder, provider, model, api_key, pages_per_chunk, vision, vision_dpi):
     """Convert all PDF files in a folder to markdown.
 
     INPUT_FOLDER: Folder containing PDF files
 
     OUTPUT_FOLDER: Optional output folder (defaults to same as input)
+
+    Vision mode provides significantly better results for documents with complex layouts,
+    tables, charts, or multi-column formats. It uses ~2-3x more tokens but delivers
+    superior quality.
     """
     batch_convert(
         input_folder,
@@ -87,7 +106,9 @@ def batch(input_folder, output_folder, provider, model, api_key, pages_per_chunk
         pages_per_chunk=pages_per_chunk,
         provider=provider.lower(),
         api_key=api_key,
-        model=model
+        model=model,
+        use_vision=vision,
+        vision_dpi=vision_dpi
     )
 
 
