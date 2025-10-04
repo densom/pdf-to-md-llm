@@ -1,12 +1,12 @@
 [project]
 name = "pdf-to-md-llm"
-version = "1.0.1"
+version = "1.0.2"
 description = "Convert PDF documents to clean Markdown using Claude API"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
-    {name = "Dennis Somerville"}
+    {name = "Dennis Somerville", email = "densom@users.noreply.github.com"}
 ]
 keywords = ["pdf", "markdown", "converter", "llm", "ai", "anthropic", "openai"]
 classifiers = [
@@ -36,6 +36,7 @@ pdf-to-md-llm = "pdf_to_md_llm.cli:cli"
 Homepage = "https://github.com/densom/pdf-to-md-llm"
 Repository = "https://github.com/densom/pdf-to-md-llm"
 Issues = "https://github.com/densom/pdf-to-md-llm/issues"
+Funding = "https://buymeacoffee.com/densom"
 
 [build-system]
 requires = ["hatchling"]
