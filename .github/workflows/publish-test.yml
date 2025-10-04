@@ -12,6 +12,9 @@ jobs:
   publish-test:
     runs-on: ubuntu-latest
     environment: test-pypi
+    permissions:
+      id-token: write  # Required for OIDC authentication
+      contents: read
 
     steps:
     - name: Checkout code
@@ -48,13 +51,7 @@ jobs:
         find dist/ -name "*.whl" -o -name "*.tar.gz"
 
     - name: Publish to Test PyPI
-      env:
-        UV_PUBLISH_TOKEN: ${{ secrets.TEST_PYPI_API_TOKEN }}
-      run: |
-        uv publish \
-          --publish-url https://test.pypi.org/legacy/ \
-          --token $UV_PUBLISH_TOKEN \
-          dist/*
+      run: uv publish --publish-url https://test.pypi.org/legacy/
 
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
