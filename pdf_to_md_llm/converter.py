@@ -2,13 +2,13 @@
 PDF to Markdown conversion functions
 """
 
-import os
-import anthropic
 import pymupdf  # PyMuPDF
 from pathlib import Path
 from typing import List, Optional
+from .providers import AIProvider, get_provider
 
 # Default configuration
+DEFAULT_PROVIDER = "anthropic"
 DEFAULT_MODEL = "claude-sonnet-4-20250514"
 DEFAULT_MAX_TOKENS = 4000
 DEFAULT_PAGES_PER_CHUNK = 5
@@ -55,72 +55,44 @@ def chunk_pages(pages: List[str], pages_per_chunk: int) -> List[str]:
 
 
 def convert_chunk_to_markdown(
-    client: anthropic.Anthropic,
+    provider: AIProvider,
     chunk: str,
-    model: str = DEFAULT_MODEL,
     max_tokens: int = DEFAULT_MAX_TOKENS
 ) -> str:
     """
-    Send a chunk of text to Claude API for markdown conversion.
+    Send a chunk of text to AI provider for markdown conversion.
 
     Args:
-        client: Anthropic API client
+        provider: AI provider instance
         chunk: Text chunk to convert
-        model: Claude model to use
         max_tokens: Maximum tokens for response
 
     Returns:
         Converted markdown text
     """
-    prompt = f"""Convert this text from a PDF document to clean, well-structured markdown.
-
-Requirements:
-- Use proper heading hierarchy (# for main titles, ## for sections, ### for subsections)
-- Convert any tables to proper markdown table format with aligned columns
-- Convert tables to structured headings instead of markdown tables if they are complex
-- Watch out for tables that span multiple pages - treat them as one table
-- Clean up formatting artifacts from PDF extraction (broken lines, weird spacing)
-- Use consistent bullet points and numbered lists
-- Preserve all information - don't summarize or omit content
-- ALWAYS Remove page numbers, headers, and footers if they appear
-- Make the document scannable with clear structure
-
-Output ONLY the markdown - no explanations or commentary.
-
-Text to convert:
-
-{chunk}"""
-
-    message = client.messages.create(
-        model=model,
-        max_tokens=max_tokens,
-        messages=[{
-            "role": "user",
-            "content": prompt
-        }]
-    )
-
-    return message.content[0].text
+    return provider.convert_to_markdown(chunk, max_tokens)
 
 
 def convert_pdf_to_markdown(
     pdf_path: str,
     output_path: Optional[str] = None,
     pages_per_chunk: int = DEFAULT_PAGES_PER_CHUNK,
+    provider: str = DEFAULT_PROVIDER,
     api_key: Optional[str] = None,
-    model: str = DEFAULT_MODEL,
+    model: Optional[str] = None,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     verbose: bool = True
 ) -> str:
     """
-    Convert a PDF file to markdown using Claude API.
+    Convert a PDF file to markdown using an AI provider.
 
     Args:
         pdf_path: Path to the PDF file
         output_path: Optional path for output file (defaults to same name with .md)
         pages_per_chunk: Number of pages to process per API call
-        api_key: Anthropic API key (defaults to ANTHROPIC_API_KEY env var)
-        model: Claude model to use
+        provider: AI provider to use ('anthropic' or 'openai')
+        api_key: API key for the provider (defaults to provider-specific env var)
+        model: Model to use (optional, uses provider defaults if not specified)
         max_tokens: Maximum tokens per API call
         verbose: Print progress messages
 
@@ -130,20 +102,21 @@ def convert_pdf_to_markdown(
     Raises:
         ValueError: If API key is not provided and not in environment
     """
+    # Initialize AI provider
+    ai_provider = get_provider(provider, api_key=api_key, model=model)
+
     if verbose:
         print(f"Processing: {pdf_path}")
+        print(f"Using provider: {provider}")
+        print(f"Using model: {ai_provider.model}")
 
-    # Get API key from parameter or environment
-    if api_key is None:
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
-
-    if not api_key or api_key == "your-api-key-here":
+    # Validate provider configuration
+    if not ai_provider.validate_config():
+        provider_upper = provider.upper()
         raise ValueError(
-            "Anthropic API key required. Pass api_key parameter or set ANTHROPIC_API_KEY environment variable."
+            f"{provider_upper} API key required. "
+            f"Pass api_key parameter or set {provider_upper}_API_KEY environment variable."
         )
-
-    # Initialize API client
-    client = anthropic.Anthropic(api_key=api_key)
 
     # Extract text from PDF
     if verbose:
@@ -163,7 +136,7 @@ def convert_pdf_to_markdown(
         if verbose:
             print(f"  Converting chunk {i}/{len(chunks)}...")
         try:
-            markdown = convert_chunk_to_markdown(client, chunk, model, max_tokens)
+            markdown = convert_chunk_to_markdown(ai_provider, chunk, max_tokens)
             markdown_chunks.append(markdown)
         except Exception as e:
             if verbose:
@@ -201,8 +174,9 @@ def batch_convert(
     input_folder: str,
     output_folder: Optional[str] = None,
     pages_per_chunk: int = DEFAULT_PAGES_PER_CHUNK,
+    provider: str = DEFAULT_PROVIDER,
     api_key: Optional[str] = None,
-    model: str = DEFAULT_MODEL,
+    model: Optional[str] = None,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     verbose: bool = True
 ) -> None:
@@ -213,8 +187,9 @@ def batch_convert(
         input_folder: Folder containing PDF files
         output_folder: Optional output folder (defaults to same as input)
         pages_per_chunk: Number of pages to process per API call
-        api_key: Anthropic API key (defaults to ANTHROPIC_API_KEY env var)
-        model: Claude model to use
+        provider: AI provider to use ('anthropic' or 'openai')
+        api_key: API key for the provider (defaults to provider-specific env var)
+        model: Model to use (optional, uses provider defaults if not specified)
         max_tokens: Maximum tokens per API call
         verbose: Print progress messages
 
@@ -255,6 +230,7 @@ def batch_convert(
                 str(pdf_file),
                 str(output_file),
                 pages_per_chunk=pages_per_chunk,
+                provider=provider,
                 api_key=api_key,
                 model=model,
                 max_tokens=max_tokens,
