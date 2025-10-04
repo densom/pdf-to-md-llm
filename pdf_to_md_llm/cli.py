@@ -51,7 +51,9 @@ def cli(ctx):
               help='Enable vision mode for better layout/table/chart extraction (recommended)')
 @click.option('--vision-dpi', default=DEFAULT_VISION_DPI, type=int,
               help=f'DPI for rendering page images in vision mode (default: {DEFAULT_VISION_DPI})')
-def convert(pdf_file, output_file, provider, model, api_key, pages_per_chunk, vision, vision_dpi):
+@click.option('--vision-pages-per-chunk', default=None, type=int,
+              help='Pages per chunk in vision mode (overrides --pages-per-chunk for vision mode)')
+def convert(pdf_file, output_file, provider, model, api_key, pages_per_chunk, vision, vision_dpi, vision_pages_per_chunk):
     """Convert a single PDF file to markdown.
 
     PDF_FILE: Path to the PDF file to convert
@@ -62,10 +64,15 @@ def convert(pdf_file, output_file, provider, model, api_key, pages_per_chunk, vi
     tables, charts, or multi-column formats. It uses ~2-3x more tokens but delivers
     superior quality.
     """
+    # Determine effective pages per chunk for vision mode
+    effective_pages_per_chunk = pages_per_chunk
+    if vision and vision_pages_per_chunk is not None:
+        effective_pages_per_chunk = vision_pages_per_chunk
+
     convert_pdf_to_markdown(
         pdf_file,
         output_file,
-        pages_per_chunk=pages_per_chunk,
+        pages_per_chunk=effective_pages_per_chunk,
         provider=provider.lower(),
         api_key=api_key,
         model=model,
@@ -89,7 +96,9 @@ def convert(pdf_file, output_file, provider, model, api_key, pages_per_chunk, vi
               help='Enable vision mode for better layout/table/chart extraction (recommended)')
 @click.option('--vision-dpi', default=DEFAULT_VISION_DPI, type=int,
               help=f'DPI for rendering page images in vision mode (default: {DEFAULT_VISION_DPI})')
-def batch(input_folder, output_folder, provider, model, api_key, pages_per_chunk, vision, vision_dpi):
+@click.option('--vision-pages-per-chunk', default=None, type=int,
+              help='Pages per chunk in vision mode (overrides --pages-per-chunk for vision mode)')
+def batch(input_folder, output_folder, provider, model, api_key, pages_per_chunk, vision, vision_dpi, vision_pages_per_chunk):
     """Convert all PDF files in a folder to markdown.
 
     INPUT_FOLDER: Folder containing PDF files
@@ -100,10 +109,15 @@ def batch(input_folder, output_folder, provider, model, api_key, pages_per_chunk
     tables, charts, or multi-column formats. It uses ~2-3x more tokens but delivers
     superior quality.
     """
+    # Determine effective pages per chunk for vision mode
+    effective_pages_per_chunk = pages_per_chunk
+    if vision and vision_pages_per_chunk is not None:
+        effective_pages_per_chunk = vision_pages_per_chunk
+
     batch_convert(
         input_folder,
         output_folder,
-        pages_per_chunk=pages_per_chunk,
+        pages_per_chunk=effective_pages_per_chunk,
         provider=provider.lower(),
         api_key=api_key,
         model=model,

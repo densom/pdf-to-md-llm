@@ -14,7 +14,7 @@ DEFAULT_MODEL = "claude-sonnet-4-20250514"
 DEFAULT_MAX_TOKENS = 4000
 DEFAULT_PAGES_PER_CHUNK = 5
 DEFAULT_VISION_DPI = 150
-DEFAULT_VISION_PAGES_PER_CHUNK = 2
+DEFAULT_VISION_PAGES_PER_CHUNK = 8
 
 
 def extract_text_from_pdf(pdf_path: str) -> List[str]:
@@ -239,8 +239,9 @@ def convert_pdf_to_markdown(
             tables_count = sum(1 for p in vision_pages if p['has_tables'])
             print(f"  Detected {images_count} pages with images, {tables_count} pages with tables")
 
-        # Use smaller chunks for vision mode (default 2 pages per chunk)
-        effective_pages_per_chunk = min(pages_per_chunk, DEFAULT_VISION_PAGES_PER_CHUNK)
+        # Use vision-specific chunk size if pages_per_chunk wasn't explicitly set
+        # Otherwise respect the user's choice
+        effective_pages_per_chunk = pages_per_chunk if pages_per_chunk != DEFAULT_PAGES_PER_CHUNK else DEFAULT_VISION_PAGES_PER_CHUNK
         chunks = chunk_vision_pages(vision_pages, effective_pages_per_chunk)
         if verbose:
             print(f"  Created {len(chunks)} chunks ({effective_pages_per_chunk} pages per chunk)")

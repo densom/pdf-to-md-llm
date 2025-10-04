@@ -4,18 +4,22 @@ Convert PDF documents to clean, well-structured Markdown using LLM-assisted proc
 
 ## Features
 
-- **Smart Conversion**: Uses Claude API to intelligently convert PDF content to clean markdown
+- **Multi-Provider Support**: Use Anthropic (Claude) or OpenAI (GPT) models
+- **Vision Mode**: Enhanced extraction using image analysis for complex layouts, tables, and charts
+- **Smart Conversion**: Intelligently converts PDF content to clean markdown with LLM assistance
 - **Large File Support**: Automatically chunks large PDFs for optimal processing
 - **Batch Processing**: Convert entire folders of PDFs with preserved directory structure
 - **Format Cleanup**: Removes PDF artifacts, fixes spacing, and ensures proper formatting
-- **Table Preservation**: Converts tables to proper markdown table format
+- **Table Preservation**: Converts tables to proper markdown table format with vision-enhanced accuracy
 - **Structure Detection**: Automatically generates appropriate heading hierarchy
 - **Dual Interface**: Use as both a CLI tool and a Python library
 
 ## Requirements
 
 - Python 3.9 or higher
-- Anthropic API key
+- API key for at least one provider:
+  - Anthropic API key (for Claude models)
+  - OpenAI API key (for GPT models)
 
 ## Installation
 
@@ -40,16 +44,21 @@ uv sync
 
 ## Configuration
 
-Create a `.env.local` file in the project root with your API key:
+Create a `.env.local` file in the project root with your API key(s):
 
 ```bash
-ANTHROPIC_API_KEY=your-api-key-here
+# For Anthropic (Claude)
+ANTHROPIC_API_KEY=your-anthropic-api-key-here
+
+# For OpenAI (GPT)
+OPENAI_API_KEY=your-openai-api-key-here
 ```
 
-Or set the environment variable directly:
+Or set the environment variables directly:
 
 ```bash
-export ANTHROPIC_API_KEY='your-api-key-here'
+export ANTHROPIC_API_KEY='your-anthropic-api-key-here'
+export OPENAI_API_KEY='your-openai-api-key-here'
 ```
 
 ## Usage
@@ -61,14 +70,23 @@ After installation via pip, the `pdf-to-md-llm` command will be available:
 #### Single File Conversion
 
 ```bash
-# Convert with auto-generated output filename
+# Convert with auto-generated output filename (uses Anthropic by default)
 pdf-to-md-llm convert document.pdf
 
 # Convert with custom output filename
 pdf-to-md-llm convert document.pdf output.md
 
-# Convert with custom chunk size
-pdf-to-md-llm convert document.pdf --pages-per-chunk 10
+# Convert with vision mode (recommended for complex layouts and tables)
+pdf-to-md-llm convert document.pdf --vision
+
+# Use OpenAI instead of Anthropic
+pdf-to-md-llm convert document.pdf --provider openai --vision
+
+# Custom chunk size for vision mode
+pdf-to-md-llm convert document.pdf --vision --vision-pages-per-chunk 6
+
+# Specify model
+pdf-to-md-llm convert document.pdf --provider anthropic --model claude-sonnet-4-20250514
 ```
 
 #### Batch Conversion
@@ -79,6 +97,12 @@ pdf-to-md-llm batch ./input-folder
 
 # Convert with custom output folder
 pdf-to-md-llm batch ./input-folder ./output-folder
+
+# Batch convert with vision mode
+pdf-to-md-llm batch ./input-folder --vision
+
+# Batch convert with OpenAI
+pdf-to-md-llm batch ./input-folder --provider openai --vision
 ```
 
 #### Alternative: Run as Python Module
@@ -104,20 +128,33 @@ pdf-to-md-llm batch --help
 ```python
 from pdf_to_md_llm import convert_pdf_to_markdown, batch_convert
 
-# Convert a single PDF
+# Convert a single PDF with vision mode (recommended)
 markdown_content = convert_pdf_to_markdown(
     pdf_path="document.pdf",
     output_path="output.md",  # Optional
-    pages_per_chunk=5,  # Optional
-    api_key="your-api-key",  # Optional, uses ANTHROPIC_API_KEY env var by default
-    verbose=True  # Optional, print progress
+    provider="anthropic",  # Optional: 'anthropic' or 'openai'
+    use_vision=True,  # Optional: enables vision mode for better table extraction
+    pages_per_chunk=8,  # Optional: pages per chunk (vision mode default: 8)
+    api_key="your-api-key",  # Optional, uses provider-specific env var by default
+    verbose=True  # Optional: print progress
+)
+
+# Convert with OpenAI
+markdown_content = convert_pdf_to_markdown(
+    pdf_path="document.pdf",
+    provider="openai",
+    model="gpt-4o",  # Optional: specify model
+    use_vision=True,
+    api_key="your-openai-key"
 )
 
 # Batch convert all PDFs in a folder
 batch_convert(
     input_folder="./pdfs",
     output_folder="./markdown",  # Optional
-    pages_per_chunk=5,  # Optional
+    provider="anthropic",  # Optional
+    use_vision=True,  # Optional: vision mode for all conversions
+    pages_per_chunk=8,  # Optional
     api_key="your-api-key",  # Optional
     verbose=True  # Optional
 )
@@ -141,23 +178,35 @@ print(f"Created {len(chunks)} chunks")
 
 ## How It Works
 
+### Standard Mode
 1. **Text Extraction**: Extracts text from PDF using PyMuPDF
 2. **Chunking**: Breaks content into manageable chunks (default: 5 pages per chunk)
-3. **LLM Processing**: Sends each chunk to Claude API for intelligent markdown conversion
+3. **LLM Processing**: Sends each chunk to your chosen AI provider for intelligent markdown conversion
 4. **Reassembly**: Combines all chunks into a single, formatted markdown document
+
+### Vision Mode (Recommended)
+1. **Text + Image Extraction**: Extracts both text and renders page images from PDF
+2. **Smart Chunking**: Groups pages into larger chunks (default: 8 pages per chunk) for better context
+3. **Multimodal Processing**: Sends both images and text to vision-capable models for superior layout understanding
+4. **Enhanced Accuracy**: Better table detection, chart description, and layout preservation
+5. **Reassembly**: Combines chunks with deduplication of headers/footers
 
 ## Configuration Options
 
-Edit `pdf_to_markdown.py` to adjust:
+Default values in `converter.py`:
 
-- `MODEL`: Claude model to use (default: `claude-sonnet-4-20250514`)
-- `MAX_TOKENS`: Maximum tokens per API call (default: 4000)
-- `PAGES_PER_CHUNK`: Pages to process per API call (default: 5)
+- `DEFAULT_PROVIDER`: AI provider (default: `anthropic`)
+- `DEFAULT_MODEL`: Model for Anthropic (default: `claude-sonnet-4-20250514`)
+- `DEFAULT_MAX_TOKENS`: Maximum tokens per API call (default: 4000)
+- `DEFAULT_PAGES_PER_CHUNK`: Pages per chunk for standard mode (default: 5)
+- `DEFAULT_VISION_PAGES_PER_CHUNK`: Pages per chunk for vision mode (default: 8)
+- `DEFAULT_VISION_DPI`: Image rendering DPI for vision mode (default: 150)
 
 ## Dependencies
 
-- **anthropic**: Claude API client
-- **pymupdf**: PDF text extraction
+- **anthropic**: Claude API client (optional, for Anthropic provider)
+- **openai**: OpenAI API client (optional, for OpenAI provider)
+- **pymupdf**: PDF text and image extraction
 - **python-dotenv**: Environment variable management
 - **click**: CLI framework
 
@@ -183,10 +232,13 @@ def convert_pdf_to_markdown(
     pdf_path: str,
     output_path: Optional[str] = None,
     pages_per_chunk: int = 5,
+    provider: str = "anthropic",
     api_key: Optional[str] = None,
-    model: str = "claude-sonnet-4-20250514",
+    model: Optional[str] = None,
     max_tokens: int = 4000,
-    verbose: bool = True
+    verbose: bool = True,
+    use_vision: bool = False,
+    vision_dpi: int = 150
 ) -> str
 ```
 
@@ -195,15 +247,18 @@ Convert a single PDF to markdown.
 **Parameters:**
 - `pdf_path`: Path to the PDF file
 - `output_path`: Optional output file path (defaults to PDF name with .md extension)
-- `pages_per_chunk`: Number of pages to process per API call (default: 5)
-- `api_key`: Anthropic API key (defaults to ANTHROPIC_API_KEY environment variable)
-- `model`: Claude model to use
-- `max_tokens`: Maximum tokens per API call
-- `verbose`: Print progress messages
+- `pages_per_chunk`: Number of pages to process per API call (default: 5 for standard, 8 for vision)
+- `provider`: AI provider to use - 'anthropic' or 'openai' (default: 'anthropic')
+- `api_key`: API key (defaults to provider-specific environment variable)
+- `model`: Model to use (optional, uses provider defaults if not specified)
+- `max_tokens`: Maximum tokens per API call (default: 4000)
+- `verbose`: Print progress messages (default: True)
+- `use_vision`: Enable vision mode for better layout/table extraction (default: False)
+- `vision_dpi`: DPI for rendering page images in vision mode (default: 150)
 
 **Returns:** The complete markdown content as a string
 
-**Raises:** `ValueError` if API key is not provided
+**Raises:** `ValueError` if API key is not provided or provider is invalid
 
 #### `batch_convert()`
 
@@ -212,10 +267,13 @@ def batch_convert(
     input_folder: str,
     output_folder: Optional[str] = None,
     pages_per_chunk: int = 5,
+    provider: str = "anthropic",
     api_key: Optional[str] = None,
-    model: str = "claude-sonnet-4-20250514",
+    model: Optional[str] = None,
     max_tokens: int = 4000,
-    verbose: bool = True
+    verbose: bool = True,
+    use_vision: bool = False,
+    vision_dpi: int = 150
 ) -> None
 ```
 
@@ -224,7 +282,7 @@ Convert all PDFs in a folder to markdown.
 **Parameters:**
 - `input_folder`: Folder containing PDF files
 - `output_folder`: Optional output folder (defaults to input folder)
-- Other parameters same as `convert_pdf_to_markdown()`
+- All other parameters same as `convert_pdf_to_markdown()`
 
 #### `extract_text_from_pdf()`
 
@@ -235,6 +293,16 @@ def extract_text_from_pdf(pdf_path: str) -> List[str]
 Extract raw text from PDF.
 
 **Returns:** List of strings, one per page
+
+#### `extract_pages_with_vision()`
+
+```python
+def extract_pages_with_vision(pdf_path: str, dpi: int = 150) -> List[Dict[str, Any]]
+```
+
+Extract both text and images from PDF pages for vision-based processing.
+
+**Returns:** List of dicts with keys: `page_num`, `text`, `image_base64`, `has_images`, `has_tables`
 
 #### `chunk_pages()`
 

@@ -124,13 +124,22 @@ I'm providing both the page image and extracted text for each page. Use the IMAG
 
 Requirements:
 - Use proper heading hierarchy (# for main titles, ## for sections, ### for subsections)
-- For tables: use the visual layout to understand structure, create proper markdown tables
+- **TABLES ARE CRITICAL**: Look carefully at the images for ANY tabular data (rows and columns). Tables often have:
+  * Grid lines or borders
+  * Aligned columns of text
+  * Header rows with column titles
+  * Question/Answer pairs in columns
+  * Data organized in rows and columns
+- When you detect tables:
+  * Create proper markdown tables with | separators
+  * Use the image to understand column structure and alignment
+  * If a table spans multiple pages, MERGE it into ONE continuous table (don't repeat headers)
+  * Preserve all rows and columns exactly as shown
+- **REMOVE REPETITIVE ELEMENTS**: Page headers, footers, and contact information that repeat on every page should only appear ONCE in the output
 - For charts/diagrams: describe them clearly in markdown
 - Preserve visual formatting cues (bold sections, indentation, callouts)
-- Clean up PDF artifacts (page numbers, headers, footers)
 - Handle multi-column layouts properly
 - Preserve all information - don't summarize
-- If pages are part of the same table/section, combine them seamlessly
 
 Output ONLY the markdown - no explanations or commentary.
 
@@ -248,13 +257,22 @@ I'm providing both the page image and extracted text for each page. Use the IMAG
 
 Requirements:
 - Use proper heading hierarchy (# for main titles, ## for sections, ### for subsections)
-- For tables: use the visual layout to understand structure, create proper markdown tables
+- **TABLES ARE CRITICAL**: Look carefully at the images for ANY tabular data (rows and columns). Tables often have:
+  * Grid lines or borders
+  * Aligned columns of text
+  * Header rows with column titles
+  * Question/Answer pairs in columns
+  * Data organized in rows and columns
+- When you detect tables:
+  * Create proper markdown tables with | separators
+  * Use the image to understand column structure and alignment
+  * If a table spans multiple pages, MERGE it into ONE continuous table (don't repeat headers)
+  * Preserve all rows and columns exactly as shown
+- **REMOVE REPETITIVE ELEMENTS**: Page headers, footers, and contact information that repeat on every page should only appear ONCE in the output
 - For charts/diagrams: describe them clearly in markdown
 - Preserve visual formatting cues (bold sections, indentation, callouts)
-- Clean up PDF artifacts (page numbers, headers, footers)
 - Handle multi-column layouts properly
 - Preserve all information - don't summarize
-- If pages are part of the same table/section, combine them seamlessly
 
 Output ONLY the markdown - no explanations or commentary.
 
