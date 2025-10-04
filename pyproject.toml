@@ -8,7 +8,7 @@ license = {text = "MIT"}
 authors = [
     {name = "Dennis Somerville"}
 ]
-keywords = ["pdf", "markdown", "converter", "llm", "claude", "anthropic"]
+keywords = ["pdf", "markdown", "converter", "llm", "ai", "anthropic", "openai"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -23,6 +23,7 @@ classifiers = [
 ]
 dependencies = [
     "anthropic>=0.46.0",
+    "openai>=1.0.0",
     "click>=8.3.0",
     "pymupdf>=1.26.4",
     "python-dotenv>=1.1.1",
