@@ -13,6 +13,7 @@ from .converter import (
     DEFAULT_PROVIDER,
     DEFAULT_VISION_DPI
 )
+from .providers import validate_api_key_available
 
 # Load environment variables from .env file
 load_dotenv()
@@ -64,6 +65,12 @@ def convert(pdf_file, output_file, provider, model, api_key, pages_per_chunk, vi
     tables, charts, or multi-column formats. It uses ~2-3x more tokens but delivers
     superior quality.
     """
+    # Validate API key is available before processing
+    is_valid, error_message = validate_api_key_available(provider.lower(), api_key)
+    if not is_valid:
+        click.echo(error_message, err=True)
+        raise click.Abort()
+
     # Determine effective pages per chunk for vision mode
     effective_pages_per_chunk = pages_per_chunk
     if vision and vision_pages_per_chunk is not None:
@@ -109,6 +116,12 @@ def batch(input_folder, output_folder, provider, model, api_key, pages_per_chunk
     tables, charts, or multi-column formats. It uses ~2-3x more tokens but delivers
     superior quality.
     """
+    # Validate API key is available before processing
+    is_valid, error_message = validate_api_key_available(provider.lower(), api_key)
+    if not is_valid:
+        click.echo(error_message, err=True)
+        raise click.Abort()
+
     # Determine effective pages per chunk for vision mode
     effective_pages_per_chunk = pages_per_chunk
     if vision and vision_pages_per_chunk is not None:

@@ -5,7 +5,7 @@ PDF to Markdown conversion functions
 import pymupdf  # PyMuPDF
 from pathlib import Path
 from typing import List, Optional, Dict, Any
-from .providers import AIProvider, get_provider
+from .providers import AIProvider, get_provider, validate_api_key_available
 import base64
 
 # Default configuration
@@ -207,6 +207,11 @@ def convert_pdf_to_markdown(
     Raises:
         ValueError: If API key is not provided and not in environment
     """
+    # Validate API key is available before initializing provider
+    is_valid, error_message = validate_api_key_available(provider, api_key)
+    if not is_valid:
+        raise ValueError(error_message)
+
     # Initialize AI provider
     ai_provider = get_provider(provider, api_key=api_key, model=model)
 
@@ -216,12 +221,11 @@ def convert_pdf_to_markdown(
         print(f"Using model: {ai_provider.model}")
         print(f"Vision mode: {'enabled' if use_vision else 'disabled'}")
 
-    # Validate provider configuration
+    # Double-check provider configuration (backup validation)
     if not ai_provider.validate_config():
         provider_upper = provider.upper()
         raise ValueError(
-            f"{provider_upper} API key required. "
-            f"Pass api_key parameter or set {provider_upper}_API_KEY environment variable."
+            f"{provider_upper} API key is invalid or not properly configured."
         )
 
     # Check if vision mode is supported

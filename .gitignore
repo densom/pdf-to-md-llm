@@ -29,3 +29,4 @@ env/
 /input
 /output
 notes.md
+.claude/settings.local.json

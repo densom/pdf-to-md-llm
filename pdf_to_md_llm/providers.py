@@ -319,6 +319,71 @@ Output ONLY the markdown - no explanations or commentary.
         return bool(self.api_key and self.api_key != "your-api-key-here")
 
 
+def validate_api_key_available(
+    provider: str,
+    api_key: Optional[str] = None
+) -> tuple[bool, Optional[str]]:
+    """
+    Check if API key is available for the specified provider.
+
+    Args:
+        provider: Name of the provider ('anthropic' or 'openai')
+        api_key: API key passed as parameter (optional)
+
+    Returns:
+        Tuple of (is_valid, error_message)
+        - is_valid: True if API key is available, False otherwise
+        - error_message: None if valid, friendly error message if invalid
+    """
+    provider = provider.lower()
+
+    # Check if key is provided or in environment
+    if provider == "anthropic":
+        env_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key and not env_key:
+            error_msg = """❌ Anthropic API key not found!
+
+To use Anthropic (Claude), you need to set your API key:
+
+Option 1 - Environment variable:
+  export ANTHROPIC_API_KEY='your-api-key-here'
+
+Option 2 - .env file:
+  Create a .env file in your project directory:
+  ANTHROPIC_API_KEY=your-api-key-here
+
+Option 3 - Command line:
+  pdf-to-md-llm convert document.pdf --api-key your-api-key-here
+
+Get your API key at: https://console.anthropic.com/settings/keys"""
+            return False, error_msg
+
+    elif provider == "openai":
+        env_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key and not env_key:
+            error_msg = """❌ OpenAI API key not found!
+
+To use OpenAI (GPT), you need to set your API key:
+
+Option 1 - Environment variable:
+  export OPENAI_API_KEY='your-api-key-here'
+
+Option 2 - .env file:
+  Create a .env file in your project directory:
+  OPENAI_API_KEY=your-api-key-here
+
+Option 3 - Command line:
+  pdf-to-md-llm convert document.pdf --api-key your-api-key-here
+
+Get your API key at: https://platform.openai.com/api-keys"""
+            return False, error_msg
+
+    else:
+        return False, f"Unknown provider: {provider}. Supported providers: anthropic, openai"
+
+    return True, None
+
+
 def get_provider(
     provider_name: str,
     api_key: Optional[str] = None,
