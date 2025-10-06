@@ -6,6 +6,54 @@ from abc import ABC, abstractmethod
 from typing import Optional, List, Dict, Any
 import os
 
+# Shared conversion prompts
+CONVERSION_PROMPT = """Convert this text from a PDF document to clean, well-structured markdown.
+
+Requirements:
+- Use proper heading hierarchy (# for main titles, ## for sections, ### for subsections)
+- Convert any tables to proper markdown table format with aligned columns
+- Convert tables to structured headings instead of markdown tables if they are complex
+- Watch out for tables that span multiple pages - treat them as one table
+- Clean up formatting artifacts from PDF extraction (broken lines, weird spacing)
+- Use consistent bullet points and numbered lists
+- Preserve all information - don't summarize or omit content
+- ALWAYS Remove page numbers, headers, and footers if they appear
+- Make the document scannable with clear structure
+
+Output ONLY the markdown - no explanations or commentary.
+
+Text to convert:
+
+{text}"""
+
+VISION_CONVERSION_PROMPT = """Convert these PDF pages to clean, well-structured markdown.
+
+I'm providing both the page image and extracted text for each page. Use the IMAGE to understand layout, structure, tables, charts, and visual hierarchy. Use the TEXT to reduce hallucination and get accurate content.
+
+Requirements:
+- Use proper heading hierarchy (# for main titles, ## for sections, ### for subsections)
+- **TABLES ARE CRITICAL**: Look carefully at the images for ANY tabular data (rows and columns). Tables often have:
+  * Grid lines or borders
+  * Aligned columns of text
+  * Header rows with column titles
+  * Question/Answer pairs in columns
+  * Data organized in rows and columns
+- When you detect tables:
+  * Create proper markdown tables with | separators
+  * Use the image to understand column structure and alignment
+  * If a table spans multiple pages, MERGE it into ONE continuous table (don't repeat headers)
+  * Preserve all rows and columns exactly as shown
+- **REMOVE REPETITIVE ELEMENTS**: Page headers, footers, and contact information that repeat on every page should only appear ONCE in the output
+- For charts/diagrams: describe them clearly in markdown
+- Preserve visual formatting cues (bold sections, indentation, callouts)
+- Handle multi-column layouts properly
+- Preserve all information - don't summarize
+
+Output ONLY the markdown - no explanations or commentary.
+
+---
+"""
+
 
 class AIProvider(ABC):
     """Abstract base class for AI providers"""
@@ -43,6 +91,19 @@ class AIProvider(ABC):
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support vision mode"
         )
+
+    def _build_vision_page_text(self, page: Dict[str, Any]) -> str:
+        """
+        Build the text description for a vision page.
+
+        Args:
+            page: Page dict with 'page_num', 'text', 'image_base64'
+
+        Returns:
+            Formatted text block for the page
+        """
+        page_num = page['page_num'] + 1  # Convert to 1-indexed for display
+        return f"\n**Extracted text from page {page_num}:**\n\n{page['text']}\n\n---\n"
 
     @abstractmethod
     def validate_config(self) -> bool:
@@ -88,24 +149,7 @@ class AnthropicProvider(AIProvider):
 
     def convert_to_markdown(self, text: str, max_tokens: int) -> str:
         """Convert text to markdown using Claude API"""
-        prompt = f"""Convert this text from a PDF document to clean, well-structured markdown.
-
-Requirements:
-- Use proper heading hierarchy (# for main titles, ## for sections, ### for subsections)
-- Convert any tables to proper markdown table format with aligned columns
-- Convert tables to structured headings instead of markdown tables if they are complex
-- Watch out for tables that span multiple pages - treat them as one table
-- Clean up formatting artifacts from PDF extraction (broken lines, weird spacing)
-- Use consistent bullet points and numbered lists
-- Preserve all information - don't summarize or omit content
-- ALWAYS Remove page numbers, headers, and footers if they appear
-- Make the document scannable with clear structure
-
-Output ONLY the markdown - no explanations or commentary.
-
-Text to convert:
-
-{text}"""
+        prompt = CONVERSION_PROMPT.format(text=text)
 
         message = self.client.messages.create(
             model=self.model,
@@ -128,42 +172,13 @@ Text to convert:
         content_blocks = []
 
         # Add instruction text first
-        instruction = """Convert these PDF pages to clean, well-structured markdown.
-
-I'm providing both the page image and extracted text for each page. Use the IMAGE to understand layout, structure, tables, charts, and visual hierarchy. Use the TEXT to reduce hallucination and get accurate content.
-
-Requirements:
-- Use proper heading hierarchy (# for main titles, ## for sections, ### for subsections)
-- **TABLES ARE CRITICAL**: Look carefully at the images for ANY tabular data (rows and columns). Tables often have:
-  * Grid lines or borders
-  * Aligned columns of text
-  * Header rows with column titles
-  * Question/Answer pairs in columns
-  * Data organized in rows and columns
-- When you detect tables:
-  * Create proper markdown tables with | separators
-  * Use the image to understand column structure and alignment
-  * If a table spans multiple pages, MERGE it into ONE continuous table (don't repeat headers)
-  * Preserve all rows and columns exactly as shown
-- **REMOVE REPETITIVE ELEMENTS**: Page headers, footers, and contact information that repeat on every page should only appear ONCE in the output
-- For charts/diagrams: describe them clearly in markdown
-- Preserve visual formatting cues (bold sections, indentation, callouts)
-- Handle multi-column layouts properly
-- Preserve all information - don't summarize
-
-Output ONLY the markdown - no explanations or commentary.
-
----
-"""
         content_blocks.append({
             "type": "text",
-            "text": instruction
+            "text": VISION_CONVERSION_PROMPT
         })
 
         # Add each page's image and text
         for page in pages:
-            page_num = page['page_num'] + 1  # Convert to 1-indexed for display
-
             # Add page image
             content_blocks.append({
                 "type": "image",
@@ -175,10 +190,9 @@ Output ONLY the markdown - no explanations or commentary.
             })
 
             # Add extracted text with context
-            text_block = f"\n**Extracted text from page {page_num}:**\n\n{page['text']}\n\n---\n"
             content_blocks.append({
                 "type": "text",
-                "text": text_block
+                "text": self._build_vision_page_text(page)
             })
 
         # Make API call
@@ -237,24 +251,7 @@ class OpenAIProvider(AIProvider):
 
     def convert_to_markdown(self, text: str, max_tokens: int) -> str:
         """Convert text to markdown using OpenAI API"""
-        prompt = f"""Convert this text from a PDF document to clean, well-structured markdown.
-
-Requirements:
-- Use proper heading hierarchy (# for main titles, ## for sections, ### for subsections)
-- Convert any tables to proper markdown table format with aligned columns
-- Convert tables to structured headings instead of markdown tables if they are complex
-- Watch out for tables that span multiple pages - treat them as one table
-- Clean up formatting artifacts from PDF extraction (broken lines, weird spacing)
-- Use consistent bullet points and numbered lists
-- Preserve all information - don't summarize or omit content
-- ALWAYS Remove page numbers, headers, and footers if they appear
-- Make the document scannable with clear structure
-
-Output ONLY the markdown - no explanations or commentary.
-
-Text to convert:
-
-{text}"""
+        prompt = CONVERSION_PROMPT.format(text=text)
 
         response = self.client.chat.completions.create(
             model=self.model,
@@ -277,42 +274,13 @@ Text to convert:
         content_parts = []
 
         # Add instruction text first
-        instruction = """Convert these PDF pages to clean, well-structured markdown.
-
-I'm providing both the page image and extracted text for each page. Use the IMAGE to understand layout, structure, tables, charts, and visual hierarchy. Use the TEXT to reduce hallucination and get accurate content.
-
-Requirements:
-- Use proper heading hierarchy (# for main titles, ## for sections, ### for subsections)
-- **TABLES ARE CRITICAL**: Look carefully at the images for ANY tabular data (rows and columns). Tables often have:
-  * Grid lines or borders
-  * Aligned columns of text
-  * Header rows with column titles
-  * Question/Answer pairs in columns
-  * Data organized in rows and columns
-- When you detect tables:
-  * Create proper markdown tables with | separators
-  * Use the image to understand column structure and alignment
-  * If a table spans multiple pages, MERGE it into ONE continuous table (don't repeat headers)
-  * Preserve all rows and columns exactly as shown
-- **REMOVE REPETITIVE ELEMENTS**: Page headers, footers, and contact information that repeat on every page should only appear ONCE in the output
-- For charts/diagrams: describe them clearly in markdown
-- Preserve visual formatting cues (bold sections, indentation, callouts)
-- Handle multi-column layouts properly
-- Preserve all information - don't summarize
-
-Output ONLY the markdown - no explanations or commentary.
-
----
-"""
         content_parts.append({
             "type": "text",
-            "text": instruction
+            "text": VISION_CONVERSION_PROMPT
         })
 
         # Add each page's image and text
         for page in pages:
-            page_num = page['page_num'] + 1  # Convert to 1-indexed for display
-
             # Add page image
             content_parts.append({
                 "type": "image_url",
@@ -322,10 +290,9 @@ Output ONLY the markdown - no explanations or commentary.
             })
 
             # Add extracted text with context
-            text_block = f"\n**Extracted text from page {page_num}:**\n\n{page['text']}\n\n---\n"
             content_parts.append({
                 "type": "text",
-                "text": text_block
+                "text": self._build_vision_page_text(page)
             })
 
         # Make API call

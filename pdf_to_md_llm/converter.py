@@ -16,6 +16,23 @@ DEFAULT_VISION_DPI = 150
 DEFAULT_VISION_PAGES_PER_CHUNK = 8
 
 
+def handle_chunk_conversion_error(chunk_index: int, error: Exception, verbose: bool = True) -> str:
+    """
+    Handle errors during chunk conversion.
+
+    Args:
+        chunk_index: The 1-indexed chunk number that failed
+        error: The exception that occurred
+        verbose: Whether to print error message
+
+    Returns:
+        Error markdown comment to insert in output
+    """
+    if verbose:
+        print(f"  Error converting chunk {chunk_index}: {error}")
+    return f"\n\n<!-- Error converting chunk {chunk_index}: {error} -->\n\n"
+
+
 def extract_text_from_pdf(pdf_path: str) -> List[str]:
     """
     Extract text from PDF, returning a list of page texts.
@@ -258,9 +275,7 @@ def convert_pdf_to_markdown(
                 markdown = convert_vision_chunk_to_markdown(ai_provider, chunk, max_tokens)
                 markdown_chunks.append(markdown)
             except Exception as e:
-                if verbose:
-                    print(f"  Error converting chunk {i}: {e}")
-                markdown_chunks.append(f"\n\n<!-- Error converting chunk {i}: {e} -->\n\n")
+                markdown_chunks.append(handle_chunk_conversion_error(i, e, verbose))
     else:
         # Original text-only mode
         if verbose:
@@ -283,9 +298,7 @@ def convert_pdf_to_markdown(
                 markdown = convert_chunk_to_markdown(ai_provider, chunk, max_tokens)
                 markdown_chunks.append(markdown)
             except Exception as e:
-                if verbose:
-                    print(f"  Error converting chunk {i}: {e}")
-                markdown_chunks.append(f"\n\n<!-- Error converting chunk {i}: {e} -->\n\n")
+                markdown_chunks.append(handle_chunk_conversion_error(i, e, verbose))
 
     # Combine all chunks
     full_markdown = "\n\n---\n\n".join(markdown_chunks)

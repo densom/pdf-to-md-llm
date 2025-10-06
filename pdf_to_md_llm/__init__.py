@@ -23,6 +23,8 @@ from .providers import (
     AnthropicProvider,
     OpenAIProvider,
     get_provider,
+    CONVERSION_PROMPT,
+    VISION_CONVERSION_PROMPT,
 )
 
 __version__ = "0.2.0"
@@ -38,6 +40,8 @@ __all__ = [
     "DEFAULT_PAGES_PER_CHUNK",
     "DEFAULT_VISION_DPI",
     "DEFAULT_VISION_PAGES_PER_CHUNK",
+    "CONVERSION_PROMPT",
+    "VISION_CONVERSION_PROMPT",
     "AIProvider",
     "AnthropicProvider",
     "OpenAIProvider",

@@ -5,6 +5,7 @@ Command-line interface for PDF to Markdown converter
 
 import os
 import click
+from functools import wraps
 from dotenv import load_dotenv
 from .converter import (
     convert_pdf_to_markdown,
@@ -17,6 +18,74 @@ from .providers import validate_api_key_available, list_models_for_providers
 
 # Load environment variables from .env file
 load_dotenv()
+
+# Provider display names
+PROVIDER_DISPLAY_NAMES = {
+    'anthropic': 'Anthropic (Claude)',
+    'openai': 'OpenAI (GPT)'
+}
+
+# Helper functions for validation
+def validate_provider_or_abort(provider: str, api_key: str = None):
+    """Validate API key is available or abort the CLI command"""
+    is_valid, error_message = validate_api_key_available(provider.lower(), api_key)
+    if not is_valid:
+        click.echo(error_message, err=True)
+        raise click.Abort()
+
+def get_effective_pages_per_chunk(pages_per_chunk: int, vision: bool, vision_pages_per_chunk: int = None) -> int:
+    """Determine effective pages per chunk for vision mode"""
+    if vision and vision_pages_per_chunk is not None:
+        return vision_pages_per_chunk
+    return pages_per_chunk
+
+# Shared CLI option decorators
+# These decorators implement the Decorator Pattern to add reusable option groups to Click commands.
+# They eliminate duplication by allowing multiple commands to share the same option definitions.
+
+def provider_options(f):
+    """Add provider-related options to a command"""
+    @click.option('--provider', default=DEFAULT_PROVIDER, type=click.Choice(['anthropic', 'openai'], case_sensitive=False),
+                  help=f'AI provider to use (default: {DEFAULT_PROVIDER})')
+    @click.option('--model', default=None, type=str,
+                  help='Model to use (optional, uses provider defaults if not specified)')
+    @click.option('--api-key', default=None, type=str,
+                  help='API key for the provider (optional, uses environment variable if not specified)')
+    # @wraps preserves the original function's metadata (name, docstring, signature).
+    # Without it, Click's introspection would see 'wrapper' instead of the actual command,
+    # breaking help text generation and command registration.
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        return f(*args, **kwargs)
+    return wrapper
+
+def chunking_options(f):
+    """Add chunking-related options to a command"""
+    @click.option('--pages-per-chunk', default=DEFAULT_PAGES_PER_CHUNK, type=int,
+                  help=f'Number of pages to process per API call (default: {DEFAULT_PAGES_PER_CHUNK})')
+    # @wraps preserves the original function's metadata (name, docstring, signature).
+    # Without it, Click's introspection would see 'wrapper' instead of the actual command,
+    # breaking help text generation and command registration.
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        return f(*args, **kwargs)
+    return wrapper
+
+def vision_options(f):
+    """Add vision-related options to a command"""
+    @click.option('--vision/--no-vision', default=False,
+                  help='Enable vision mode for better layout/table/chart extraction (recommended)')
+    @click.option('--vision-dpi', default=DEFAULT_VISION_DPI, type=int,
+                  help=f'DPI for rendering page images in vision mode (default: {DEFAULT_VISION_DPI})')
+    @click.option('--vision-pages-per-chunk', default=None, type=int,
+                  help='Pages per chunk in vision mode (overrides --pages-per-chunk for vision mode)')
+    # @wraps preserves the original function's metadata (name, docstring, signature).
+    # Without it, Click's introspection would see 'wrapper' instead of the actual command,
+    # breaking help text generation and command registration.
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        return f(*args, **kwargs)
+    return wrapper
 
 
 @click.group(invoke_without_command=True)
@@ -40,20 +109,9 @@ def cli(ctx):
 @cli.command()
 @click.argument('pdf_file', type=click.Path(exists=True, dir_okay=False))
 @click.argument('output_file', type=click.Path(), required=False)
-@click.option('--provider', default=DEFAULT_PROVIDER, type=click.Choice(['anthropic', 'openai'], case_sensitive=False),
-              help=f'AI provider to use (default: {DEFAULT_PROVIDER})')
-@click.option('--model', default=None, type=str,
-              help='Model to use (optional, uses provider defaults if not specified)')
-@click.option('--api-key', default=None, type=str,
-              help='API key for the provider (optional, uses environment variable if not specified)')
-@click.option('--pages-per-chunk', default=DEFAULT_PAGES_PER_CHUNK, type=int,
-              help=f'Number of pages to process per API call (default: {DEFAULT_PAGES_PER_CHUNK})')
-@click.option('--vision/--no-vision', default=False,
-              help='Enable vision mode for better layout/table/chart extraction (recommended)')
-@click.option('--vision-dpi', default=DEFAULT_VISION_DPI, type=int,
-              help=f'DPI for rendering page images in vision mode (default: {DEFAULT_VISION_DPI})')
-@click.option('--vision-pages-per-chunk', default=None, type=int,
-              help='Pages per chunk in vision mode (overrides --pages-per-chunk for vision mode)')
+@vision_options
+@chunking_options
+@provider_options
 def convert(pdf_file, output_file, provider, model, api_key, pages_per_chunk, vision, vision_dpi, vision_pages_per_chunk):
     """Convert a single PDF file to markdown.
 
@@ -66,15 +124,10 @@ def convert(pdf_file, output_file, provider, model, api_key, pages_per_chunk, vi
     superior quality.
     """
     # Validate API key is available before processing
-    is_valid, error_message = validate_api_key_available(provider.lower(), api_key)
-    if not is_valid:
-        click.echo(error_message, err=True)
-        raise click.Abort()
+    validate_provider_or_abort(provider, api_key)
 
     # Determine effective pages per chunk for vision mode
-    effective_pages_per_chunk = pages_per_chunk
-    if vision and vision_pages_per_chunk is not None:
-        effective_pages_per_chunk = vision_pages_per_chunk
+    effective_pages_per_chunk = get_effective_pages_per_chunk(pages_per_chunk, vision, vision_pages_per_chunk)
 
     convert_pdf_to_markdown(
         pdf_file,
@@ -120,10 +173,7 @@ def models(provider):
             if providers_with_errors:
                 click.echo("\nFailed to list models:\n", err=True)
                 for provider_name, data in providers_with_errors:
-                    provider_display = {
-                        'anthropic': 'Anthropic (Claude)',
-                        'openai': 'OpenAI (GPT)'
-                    }.get(provider_name, provider_name.title())
+                    provider_display = PROVIDER_DISPLAY_NAMES.get(provider_name, provider_name.title())
 
                     error_msg = data['error']
                     click.echo(f"{provider_display}:", err=True)
@@ -170,10 +220,7 @@ def models(provider):
                 continue
 
             # Provider header
-            provider_display = {
-                'anthropic': 'Anthropic (Claude)',
-                'openai': 'OpenAI (GPT)'
-            }.get(provider_name, provider_name.title())
+            provider_display = PROVIDER_DISPLAY_NAMES.get(provider_name, provider_name.title())
 
             click.echo(f"{provider_display}:")
 
@@ -203,20 +250,9 @@ def models(provider):
 @cli.command()
 @click.argument('input_folder', type=click.Path(exists=True, file_okay=False))
 @click.argument('output_folder', type=click.Path(), required=False)
-@click.option('--provider', default=DEFAULT_PROVIDER, type=click.Choice(['anthropic', 'openai'], case_sensitive=False),
-              help=f'AI provider to use (default: {DEFAULT_PROVIDER})')
-@click.option('--model', default=None, type=str,
-              help='Model to use (optional, uses provider defaults if not specified)')
-@click.option('--api-key', default=None, type=str,
-              help='API key for the provider (optional, uses environment variable if not specified)')
-@click.option('--pages-per-chunk', default=DEFAULT_PAGES_PER_CHUNK, type=int,
-              help=f'Number of pages to process per API call (default: {DEFAULT_PAGES_PER_CHUNK})')
-@click.option('--vision/--no-vision', default=False,
-              help='Enable vision mode for better layout/table/chart extraction (recommended)')
-@click.option('--vision-dpi', default=DEFAULT_VISION_DPI, type=int,
-              help=f'DPI for rendering page images in vision mode (default: {DEFAULT_VISION_DPI})')
-@click.option('--vision-pages-per-chunk', default=None, type=int,
-              help='Pages per chunk in vision mode (overrides --pages-per-chunk for vision mode)')
+@vision_options
+@chunking_options
+@provider_options
 def batch(input_folder, output_folder, provider, model, api_key, pages_per_chunk, vision, vision_dpi, vision_pages_per_chunk):
     """Convert all PDF files in a folder to markdown.
 
@@ -229,15 +265,10 @@ def batch(input_folder, output_folder, provider, model, api_key, pages_per_chunk
     superior quality.
     """
     # Validate API key is available before processing
-    is_valid, error_message = validate_api_key_available(provider.lower(), api_key)
-    if not is_valid:
-        click.echo(error_message, err=True)
-        raise click.Abort()
+    validate_provider_or_abort(provider, api_key)
 
     # Determine effective pages per chunk for vision mode
-    effective_pages_per_chunk = pages_per_chunk
-    if vision and vision_pages_per_chunk is not None:
-        effective_pages_per_chunk = vision_pages_per_chunk
+    effective_pages_per_chunk = get_effective_pages_per_chunk(pages_per_chunk, vision, vision_pages_per_chunk)
 
     batch_convert(
         input_folder,
