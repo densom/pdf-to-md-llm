@@ -54,6 +54,16 @@ class AIProvider(ABC):
         """
         pass
 
+    @abstractmethod
+    def list_available_models(self) -> List[Dict[str, Any]]:
+        """
+        List available models from this provider.
+
+        Returns:
+            List of dicts with model information (id, name, etc.)
+        """
+        pass
+
 
 class AnthropicProvider(AIProvider):
     """Anthropic (Claude) AI provider"""
@@ -187,6 +197,22 @@ Output ONLY the markdown - no explanations or commentary.
         """Validate Anthropic API key"""
         return bool(self.api_key and self.api_key != "your-api-key-here")
 
+    def list_available_models(self) -> List[Dict[str, Any]]:
+        """List available models from Anthropic"""
+        # Query the Anthropic API for available models
+        models = self.client.models.list()
+
+        # Convert to list of dicts with relevant info
+        model_list = []
+        for model in models.data:
+            model_list.append({
+                'id': model.id,
+                'name': model.display_name if hasattr(model, 'display_name') else model.id,
+                'created': model.created_at if hasattr(model, 'created_at') else None
+            })
+
+        return model_list
+
 
 class OpenAIProvider(AIProvider):
     """OpenAI (GPT) AI provider"""
@@ -318,6 +344,27 @@ Output ONLY the markdown - no explanations or commentary.
         """Validate OpenAI API key"""
         return bool(self.api_key and self.api_key != "your-api-key-here")
 
+    def list_available_models(self) -> List[Dict[str, Any]]:
+        """List available models from OpenAI"""
+        # Query the OpenAI API for available models
+        models = self.client.models.list()
+
+        # Filter for GPT models and convert to list of dicts
+        model_list = []
+        for model in models.data:
+            # Only include GPT models (filter out embedding models, etc.)
+            if 'gpt' in model.id.lower():
+                model_list.append({
+                    'id': model.id,
+                    'name': model.id,
+                    'created': model.created if hasattr(model, 'created') else None
+                })
+
+        # Sort by creation date (newest first)
+        model_list.sort(key=lambda x: x['created'] if x['created'] else 0, reverse=True)
+
+        return model_list
+
 
 def validate_api_key_available(
     provider: str,
@@ -420,3 +467,82 @@ def get_provider(
             f"Unknown provider: {provider_name}. "
             "Supported providers: anthropic, openai"
         )
+
+
+def list_models_for_providers(
+    provider_filter: Optional[str] = None
+) -> Dict[str, Dict[str, Any]]:
+    """
+    List available models from all providers (or a specific provider).
+
+    Only queries providers for which API keys are available.
+
+    Args:
+        provider_filter: Optional provider name to filter by ('anthropic' or 'openai')
+
+    Returns:
+        Dict mapping provider names to their data:
+        {
+            'anthropic': {
+                'available': True/False,
+                'default_model': 'model-id',
+                'models': [{'id': '...', 'name': '...', ...}]
+            },
+            'openai': {...}
+        }
+    """
+    result = {}
+
+    # Define providers to check
+    providers_to_check = {
+        'anthropic': AnthropicProvider,
+        'openai': OpenAIProvider
+    }
+
+    # Filter if requested
+    if provider_filter:
+        provider_filter = provider_filter.lower()
+        if provider_filter not in providers_to_check:
+            raise ValueError(
+                f"Unknown provider: {provider_filter}. "
+                "Supported providers: anthropic, openai"
+            )
+        providers_to_check = {provider_filter: providers_to_check[provider_filter]}
+
+    # Check each provider
+    for provider_name, provider_class in providers_to_check.items():
+        # Check if API key is available
+        is_valid, _ = validate_api_key_available(provider_name)
+
+        if is_valid:
+            try:
+                # Initialize provider and get models
+                provider = provider_class()
+
+                # Get default model from provider instance
+                default_model = provider.model
+
+                # Get available models
+                models = provider.list_available_models()
+
+                result[provider_name] = {
+                    'available': True,
+                    'default_model': default_model,
+                    'models': models
+                }
+            except Exception as e:
+                # Provider initialization failed
+                result[provider_name] = {
+                    'available': False,
+                    'error': str(e),
+                    'models': []
+                }
+        else:
+            # No API key available
+            result[provider_name] = {
+                'available': False,
+                'error': 'API key not found',
+                'models': []
+            }
+
+    return result

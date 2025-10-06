@@ -13,7 +13,7 @@ from .converter import (
     DEFAULT_PROVIDER,
     DEFAULT_VISION_DPI
 )
-from .providers import validate_api_key_available
+from .providers import validate_api_key_available, list_models_for_providers
 
 # Load environment variables from .env file
 load_dotenv()
@@ -86,6 +86,118 @@ def convert(pdf_file, output_file, provider, model, api_key, pages_per_chunk, vi
         use_vision=vision,
         vision_dpi=vision_dpi
     )
+
+
+@cli.command()
+@click.option('--provider', default=None, type=click.Choice(['anthropic', 'openai'], case_sensitive=False),
+              help='Filter by specific provider (optional, shows all providers by default)')
+def models(provider):
+    """List available AI models from configured providers.
+
+    Shows models from providers that have API keys configured.
+    Use --provider to filter by a specific provider.
+
+    Examples:
+        pdf-to-md-llm models
+        pdf-to-md-llm models --provider anthropic
+        pdf-to-md-llm models --provider openai
+    """
+    try:
+        # Get models from all or specific provider
+        providers_data = list_models_for_providers(provider)
+
+        # Check if any providers are available
+        available_providers = [p for p, data in providers_data.items() if data['available']]
+
+        # Check if there were errors trying to access providers
+        providers_with_errors = [
+            (p, data) for p, data in providers_data.items()
+            if not data['available'] and data.get('error') and data['error'] != 'API key not found'
+        ]
+
+        if not available_providers:
+            # If we have errors (like invalid keys), show those
+            if providers_with_errors:
+                click.echo("\nFailed to list models:\n", err=True)
+                for provider_name, data in providers_with_errors:
+                    provider_display = {
+                        'anthropic': 'Anthropic (Claude)',
+                        'openai': 'OpenAI (GPT)'
+                    }.get(provider_name, provider_name.title())
+
+                    error_msg = data['error']
+                    click.echo(f"{provider_display}:", err=True)
+                    click.echo(f"  {error_msg}", err=True)
+
+                    # Check if it's an authentication error
+                    if 'authentication' in error_msg.lower() or '401' in error_msg:
+                        click.echo(f"\n  Your API key appears to be invalid. Please check:", err=True)
+                        env_var = f"{provider_name.upper()}_API_KEY"
+                        click.echo(f"  - The {env_var} environment variable", err=True)
+                        click.echo(f"  - Get a valid key at:", err=True)
+                        if provider_name == 'anthropic':
+                            click.echo(f"    https://console.anthropic.com/settings/keys", err=True)
+                        elif provider_name == 'openai':
+                            click.echo(f"    https://platform.openai.com/api-keys", err=True)
+                    click.echo()
+                return
+
+            # Otherwise, no API keys configured at all
+            click.echo("No API keys configured!")
+            click.echo("\nTo list models, you need to configure at least one provider:")
+            click.echo("\n  Anthropic (Claude):")
+            click.echo("    export ANTHROPIC_API_KEY='your-api-key-here'")
+            click.echo("\n  OpenAI (GPT):")
+            click.echo("    export OPENAI_API_KEY='your-api-key-here'")
+            return
+
+        # Display models organized by provider
+        click.echo("\nAvailable Models:\n")
+
+        for provider_name, data in providers_data.items():
+            if not data['available']:
+                # Skip unavailable providers unless specifically requested
+                if provider and provider.lower() == provider_name:
+                    error_msg = data.get('error', 'Not available')
+                    click.echo(f"\n{provider_name.title()}: Failed to list models", err=True)
+                    click.echo(f"Error: {error_msg}", err=True)
+
+                    # Provide helpful troubleshooting info
+                    if 'API key' in error_msg or 'not found' in error_msg:
+                        env_var = f"{provider_name.upper()}_API_KEY"
+                        click.echo(f"\nMake sure your {env_var} is configured correctly.", err=True)
+                        click.echo(f"  export {env_var}='your-api-key-here'", err=True)
+                continue
+
+            # Provider header
+            provider_display = {
+                'anthropic': 'Anthropic (Claude)',
+                'openai': 'OpenAI (GPT)'
+            }.get(provider_name, provider_name.title())
+
+            click.echo(f"{provider_display}:")
+
+            # List models
+            default_model = data.get('default_model')
+            models_list = data.get('models', [])
+
+            if 'error' in data:
+                # API call succeeded but there was an issue
+                click.echo(f"  Error: {data['error']}", err=True)
+            elif not models_list:
+                click.echo("  No models found")
+            else:
+                for model in models_list:
+                    model_id = model['id']
+                    is_default = model_id == default_model
+                    default_marker = " (default)" if is_default else ""
+                    click.echo(f"  • {model_id}{default_marker}")
+
+            click.echo()  # Blank line between providers
+
+    except Exception as e:
+        click.echo(f"Error listing models: {e}", err=True)
+        raise click.Abort()
 
 
 @cli.command()
