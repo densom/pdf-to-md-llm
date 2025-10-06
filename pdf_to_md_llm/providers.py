@@ -71,7 +71,7 @@ class AnthropicProvider(AIProvider):
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model: str = "claude-sonnet-4-20250514"
+        model: str = "claude-3-5-haiku-20241022"
     ):
         """
         Initialize Anthropic provider.
@@ -220,7 +220,7 @@ class OpenAIProvider(AIProvider):
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model: str = "gpt-4o"
+        model: str = "gpt-4o-mini"
     ):
         """
         Initialize OpenAI provider.

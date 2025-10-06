@@ -10,7 +10,6 @@ import base64
 
 # Default configuration
 DEFAULT_PROVIDER = "anthropic"
-DEFAULT_MODEL = "claude-sonnet-4-20250514"
 DEFAULT_MAX_TOKENS = 4000
 DEFAULT_PAGES_PER_CHUNK = 5
 DEFAULT_VISION_DPI = 150
