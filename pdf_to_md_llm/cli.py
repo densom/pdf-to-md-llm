@@ -13,7 +13,7 @@ from .converter import (
     DEFAULT_PROVIDER,
     DEFAULT_VISION_DPI
 )
-from .providers import validate_api_key_available
+from .providers import validate_api_key_available, list_models_for_providers
 
 # Load environment variables from .env file
 load_dotenv()
@@ -86,6 +86,74 @@ def convert(pdf_file, output_file, provider, model, api_key, pages_per_chunk, vi
         use_vision=vision,
         vision_dpi=vision_dpi
     )
+
+
+@cli.command()
+@click.option('--provider', default=None, type=click.Choice(['anthropic', 'openai'], case_sensitive=False),
+              help='Filter by specific provider (optional, shows all providers by default)')
+def models(provider):
+    """List available AI models from configured providers.
+
+    Shows models from providers that have API keys configured.
+    Use --provider to filter by a specific provider.
+
+    Examples:
+        pdf-to-md-llm models
+        pdf-to-md-llm models --provider anthropic
+        pdf-to-md-llm models --provider openai
+    """
+    try:
+        # Get models from all or specific provider
+        providers_data = list_models_for_providers(provider)
+
+        # Check if any providers are available
+        available_providers = [p for p, data in providers_data.items() if data['available']]
+
+        if not available_providers:
+            click.echo("No API keys configured!")
+            click.echo("\nTo list models, you need to configure at least one provider:")
+            click.echo("\n  Anthropic (Claude):")
+            click.echo("    export ANTHROPIC_API_KEY='your-api-key-here'")
+            click.echo("\n  OpenAI (GPT):")
+            click.echo("    export OPENAI_API_KEY='your-api-key-here'")
+            return
+
+        # Display models organized by provider
+        click.echo("\nAvailable Models:\n")
+
+        for provider_name, data in providers_data.items():
+            if not data['available']:
+                # Skip unavailable providers unless specifically requested
+                if provider and provider.lower() == provider_name:
+                    click.echo(f"{provider_name.title()}: {data.get('error', 'Not available')}\n")
+                continue
+
+            # Provider header
+            provider_display = {
+                'anthropic': 'Anthropic (Claude)',
+                'openai': 'OpenAI (GPT)'
+            }.get(provider_name, provider_name.title())
+
+            click.echo(f"{provider_display}:")
+
+            # List models
+            default_model = data.get('default_model')
+            models_list = data.get('models', [])
+
+            if not models_list:
+                click.echo("  No models found")
+            else:
+                for model in models_list:
+                    model_id = model['id']
+                    is_default = model_id == default_model
+                    default_marker = " (default)" if is_default else ""
+                    click.echo(f"  • {model_id}{default_marker}")
+
+            click.echo()  # Blank line between providers
+
+    except Exception as e:
+        click.echo(f"Error listing models: {e}", err=True)
+        raise click.Abort()
 
 
 @cli.command()
