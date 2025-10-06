@@ -199,28 +199,19 @@ Output ONLY the markdown - no explanations or commentary.
 
     def list_available_models(self) -> List[Dict[str, Any]]:
         """List available models from Anthropic"""
-        try:
-            # Query the Anthropic API for available models
-            models = self.client.models.list()
+        # Query the Anthropic API for available models
+        models = self.client.models.list()
 
-            # Convert to list of dicts with relevant info
-            model_list = []
-            for model in models.data:
-                model_list.append({
-                    'id': model.id,
-                    'name': model.display_name if hasattr(model, 'display_name') else model.id,
-                    'created': model.created_at if hasattr(model, 'created_at') else None
-                })
+        # Convert to list of dicts with relevant info
+        model_list = []
+        for model in models.data:
+            model_list.append({
+                'id': model.id,
+                'name': model.display_name if hasattr(model, 'display_name') else model.id,
+                'created': model.created_at if hasattr(model, 'created_at') else None
+            })
 
-            return model_list
-        except Exception:
-            # If API call fails, return a static list of known models
-            return [
-                {'id': 'claude-sonnet-4-20250514', 'name': 'Claude Sonnet 4', 'created': None},
-                {'id': 'claude-opus-4-20250514', 'name': 'Claude Opus 4', 'created': None},
-                {'id': 'claude-3-5-sonnet-20241022', 'name': 'Claude 3.5 Sonnet', 'created': None},
-                {'id': 'claude-3-5-haiku-20241022', 'name': 'Claude 3.5 Haiku', 'created': None},
-            ]
+        return model_list
 
 
 class OpenAIProvider(AIProvider):
@@ -355,34 +346,24 @@ Output ONLY the markdown - no explanations or commentary.
 
     def list_available_models(self) -> List[Dict[str, Any]]:
         """List available models from OpenAI"""
-        try:
-            # Query the OpenAI API for available models
-            models = self.client.models.list()
+        # Query the OpenAI API for available models
+        models = self.client.models.list()
 
-            # Filter for GPT models and convert to list of dicts
-            model_list = []
-            for model in models.data:
-                # Only include GPT models (filter out embedding models, etc.)
-                if 'gpt' in model.id.lower():
-                    model_list.append({
-                        'id': model.id,
-                        'name': model.id,
-                        'created': model.created if hasattr(model, 'created') else None
-                    })
+        # Filter for GPT models and convert to list of dicts
+        model_list = []
+        for model in models.data:
+            # Only include GPT models (filter out embedding models, etc.)
+            if 'gpt' in model.id.lower():
+                model_list.append({
+                    'id': model.id,
+                    'name': model.id,
+                    'created': model.created if hasattr(model, 'created') else None
+                })
 
-            # Sort by creation date (newest first)
-            model_list.sort(key=lambda x: x['created'] if x['created'] else 0, reverse=True)
+        # Sort by creation date (newest first)
+        model_list.sort(key=lambda x: x['created'] if x['created'] else 0, reverse=True)
 
-            return model_list
-        except Exception:
-            # If API call fails, return a static list of known models
-            return [
-                {'id': 'gpt-4o', 'name': 'gpt-4o', 'created': None},
-                {'id': 'gpt-4o-mini', 'name': 'gpt-4o-mini', 'created': None},
-                {'id': 'gpt-4-turbo', 'name': 'gpt-4-turbo', 'created': None},
-                {'id': 'gpt-4', 'name': 'gpt-4', 'created': None},
-                {'id': 'gpt-3.5-turbo', 'name': 'gpt-3.5-turbo', 'created': None},
-            ]
+        return model_list
 
 
 def validate_api_key_available(

@@ -109,7 +109,40 @@ def models(provider):
         # Check if any providers are available
         available_providers = [p for p, data in providers_data.items() if data['available']]
 
+        # Check if there were errors trying to access providers
+        providers_with_errors = [
+            (p, data) for p, data in providers_data.items()
+            if not data['available'] and data.get('error') and data['error'] != 'API key not found'
+        ]
+
         if not available_providers:
+            # If we have errors (like invalid keys), show those
+            if providers_with_errors:
+                click.echo("\nFailed to list models:\n", err=True)
+                for provider_name, data in providers_with_errors:
+                    provider_display = {
+                        'anthropic': 'Anthropic (Claude)',
+                        'openai': 'OpenAI (GPT)'
+                    }.get(provider_name, provider_name.title())
+
+                    error_msg = data['error']
+                    click.echo(f"{provider_display}:", err=True)
+                    click.echo(f"  {error_msg}", err=True)
+
+                    # Check if it's an authentication error
+                    if 'authentication' in error_msg.lower() or '401' in error_msg:
+                        click.echo(f"\n  Your API key appears to be invalid. Please check:", err=True)
+                        env_var = f"{provider_name.upper()}_API_KEY"
+                        click.echo(f"  - The {env_var} environment variable", err=True)
+                        click.echo(f"  - Get a valid key at:", err=True)
+                        if provider_name == 'anthropic':
+                            click.echo(f"    https://console.anthropic.com/settings/keys", err=True)
+                        elif provider_name == 'openai':
+                            click.echo(f"    https://platform.openai.com/api-keys", err=True)
+                    click.echo()
+                return
+
+            # Otherwise, no API keys configured at all
             click.echo("No API keys configured!")
             click.echo("\nTo list models, you need to configure at least one provider:")
             click.echo("\n  Anthropic (Claude):")
@@ -125,7 +158,15 @@ def models(provider):
             if not data['available']:
                 # Skip unavailable providers unless specifically requested
                 if provider and provider.lower() == provider_name:
-                    click.echo(f"{provider_name.title()}: {data.get('error', 'Not available')}\n")
+                    error_msg = data.get('error', 'Not available')
+                    click.echo(f"\n{provider_name.title()}: Failed to list models", err=True)
+                    click.echo(f"Error: {error_msg}", err=True)
+
+                    # Provide helpful troubleshooting info
+                    if 'API key' in error_msg or 'not found' in error_msg:
+                        env_var = f"{provider_name.upper()}_API_KEY"
+                        click.echo(f"\nMake sure your {env_var} is configured correctly.", err=True)
+                        click.echo(f"  export {env_var}='your-api-key-here'", err=True)
                 continue
 
             # Provider header
@@ -140,7 +181,10 @@ def models(provider):
             default_model = data.get('default_model')
             models_list = data.get('models', [])
 
-            if not models_list:
+            if 'error' in data:
+                # API call succeeded but there was an issue
+                click.echo(f"  Error: {data['error']}", err=True)
+            elif not models_list:
                 click.echo("  No models found")
             else:
                 for model in models_list:
