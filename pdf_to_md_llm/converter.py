@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any
 from .providers import AIProvider, get_provider, validate_api_key_available
 import base64
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 
 # Default configuration
 DEFAULT_PROVIDER = "anthropic"
@@ -14,6 +16,7 @@ DEFAULT_MAX_TOKENS = 4000
 DEFAULT_PAGES_PER_CHUNK = 5
 DEFAULT_VISION_DPI = 150
 DEFAULT_VISION_PAGES_PER_CHUNK = 8
+DEFAULT_THREADS = 1
 
 
 def handle_chunk_conversion_error(chunk_index: int, error: Exception, verbose: bool = True) -> str:
@@ -337,7 +340,8 @@ def batch_convert(
     max_tokens: int = DEFAULT_MAX_TOKENS,
     verbose: bool = True,
     use_vision: bool = False,
-    vision_dpi: int = DEFAULT_VISION_DPI
+    vision_dpi: int = DEFAULT_VISION_DPI,
+    threads: int = DEFAULT_THREADS
 ) -> None:
     """
     Convert all PDF files in a folder and its subdirectories to markdown.
@@ -353,12 +357,21 @@ def batch_convert(
         verbose: Print progress messages
         use_vision: Use vision-based processing (images + text)
         vision_dpi: DPI for rendering page images when using vision mode
+        threads: Number of threads for parallel processing (default: 1)
 
     Raises:
         ValueError: If API key is not provided and not in environment
     """
     input_path = Path(input_folder)
     output_path = Path(output_folder) if output_folder else input_path
+
+    # Validate API key and initialize provider to get model information
+    is_valid, error_message = validate_api_key_available(provider, api_key)
+    if not is_valid:
+        raise ValueError(error_message)
+
+    # Initialize AI provider to display configuration
+    ai_provider = get_provider(provider, api_key=api_key, model=model)
 
     # Create output folder if needed
     output_path.mkdir(parents=True, exist_ok=True)
@@ -372,36 +385,105 @@ def batch_convert(
         return
 
     if verbose:
-        print(f"Found {len(pdf_files)} PDF files to convert\n")
+        mode = f"multithreaded ({threads} threads)" if threads > 1 else "single-threaded"
+        print(f"Batch Processing Configuration:")
+        print(f"  Provider: {provider}")
+        print(f"  Model: {ai_provider.model}")
+        print(f"  Vision mode: {'enabled' if use_vision else 'disabled'}")
+        print(f"  Mode: {mode}")
+        print(f"  Files: {len(pdf_files)} PDF files")
+        print()
 
-    # Convert each file
-    for i, pdf_file in enumerate(pdf_files, 1):
-        if verbose:
-            print(f"\n[{i}/{len(pdf_files)}]")
-
-        # Preserve subdirectory structure in output
-        relative_path = pdf_file.relative_to(input_path)
-        output_file = output_path / relative_path.with_suffix('.md')
-
-        # Create subdirectory if needed
-        output_file.parent.mkdir(parents=True, exist_ok=True)
-
-        try:
-            convert_pdf_to_markdown(
-                str(pdf_file),
-                str(output_file),
-                pages_per_chunk=pages_per_chunk,
-                provider=provider,
-                api_key=api_key,
-                model=model,
-                max_tokens=max_tokens,
-                verbose=verbose,
-                use_vision=use_vision,
-                vision_dpi=vision_dpi
-            )
-        except Exception as e:
+    # Single-threaded execution (original behavior)
+    if threads == 1:
+        for i, pdf_file in enumerate(pdf_files, 1):
             if verbose:
-                print(f"Failed: {e}")
+                print(f"\n[{i}/{len(pdf_files)}]")
+
+            # Preserve subdirectory structure in output
+            relative_path = pdf_file.relative_to(input_path)
+            output_file = output_path / relative_path.with_suffix('.md')
+
+            # Create subdirectory if needed
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+
+            try:
+                convert_pdf_to_markdown(
+                    str(pdf_file),
+                    str(output_file),
+                    pages_per_chunk=pages_per_chunk,
+                    provider=provider,
+                    api_key=api_key,
+                    model=model,
+                    max_tokens=max_tokens,
+                    verbose=verbose,
+                    use_vision=use_vision,
+                    vision_dpi=vision_dpi
+                )
+            except Exception as e:
+                if verbose:
+                    print(f"Failed: {e}")
+    else:
+        # Multithreaded execution
+        completed_count = 0
+        progress_lock = threading.Lock()
+
+        def convert_single_file(pdf_file: Path) -> tuple[bool, str]:
+            """Convert a single PDF file and return success status and message."""
+            nonlocal completed_count
+
+            # Preserve subdirectory structure in output
+            relative_path = pdf_file.relative_to(input_path)
+            output_file = output_path / relative_path.with_suffix('.md')
+
+            # Create subdirectory if needed
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+
+            try:
+                # For multithreaded mode, reduce verbosity of individual file processing
+                convert_pdf_to_markdown(
+                    str(pdf_file),
+                    str(output_file),
+                    pages_per_chunk=pages_per_chunk,
+                    provider=provider,
+                    api_key=api_key,
+                    model=model,
+                    max_tokens=max_tokens,
+                    verbose=False,  # Suppress per-file output in multithreaded mode
+                    use_vision=use_vision,
+                    vision_dpi=vision_dpi
+                )
+
+                with progress_lock:
+                    completed_count += 1
+                    if verbose:
+                        print(f"[OK] [{completed_count}/{len(pdf_files)}] {pdf_file.name}")
+
+                return True, str(pdf_file)
+            except Exception as e:
+                with progress_lock:
+                    completed_count += 1
+                    if verbose:
+                        print(f"[FAILED] [{completed_count}/{len(pdf_files)}] {pdf_file.name}: {e}")
+
+                return False, str(pdf_file)
+
+        # Use ThreadPoolExecutor for parallel processing
+        with ThreadPoolExecutor(max_workers=threads) as executor:
+            # Submit all tasks
+            future_to_pdf = {
+                executor.submit(convert_single_file, pdf_file): pdf_file
+                for pdf_file in pdf_files
+            }
+
+            # Wait for all tasks to complete
+            for future in as_completed(future_to_pdf):
+                try:
+                    future.result()
+                except Exception as e:
+                    if verbose:
+                        pdf_file = future_to_pdf[future]
+                        print(f"Unexpected error processing {pdf_file.name}: {e}")
 
     if verbose:
         print(f"\nBatch conversion complete!")

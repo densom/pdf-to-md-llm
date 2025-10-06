@@ -12,7 +12,8 @@ from .converter import (
     batch_convert,
     DEFAULT_PAGES_PER_CHUNK,
     DEFAULT_PROVIDER,
-    DEFAULT_VISION_DPI
+    DEFAULT_VISION_DPI,
+    DEFAULT_THREADS
 )
 from .providers import validate_api_key_available, list_models_for_providers
 
@@ -250,10 +251,12 @@ def models(provider):
 @cli.command()
 @click.argument('input_folder', type=click.Path(exists=True, file_okay=False))
 @click.argument('output_folder', type=click.Path(), required=False)
+@click.option('--threads', type=int, default=DEFAULT_THREADS,
+              help=f'Number of threads for parallel processing (default: {DEFAULT_THREADS}). Use 2+ for faster batch conversion.')
 @vision_options
 @chunking_options
 @provider_options
-def batch(input_folder, output_folder, provider, model, api_key, pages_per_chunk, vision, vision_dpi, vision_pages_per_chunk):
+def batch(input_folder, output_folder, threads, provider, model, api_key, pages_per_chunk, vision, vision_dpi, vision_pages_per_chunk):
     """Convert all PDF files in a folder to markdown.
 
     INPUT_FOLDER: Folder containing PDF files
@@ -263,6 +266,9 @@ def batch(input_folder, output_folder, provider, model, api_key, pages_per_chunk
     Vision mode provides significantly better results for documents with complex layouts,
     tables, charts, or multi-column formats. It uses ~2-3x more tokens but delivers
     superior quality.
+
+    Use --threads to enable parallel processing for faster batch conversion. Note that
+    higher thread counts may increase API rate limit risks.
     """
     # Validate API key is available before processing
     validate_provider_or_abort(provider, api_key)
@@ -278,7 +284,8 @@ def batch(input_folder, output_folder, provider, model, api_key, pages_per_chunk
         api_key=api_key,
         model=model,
         use_vision=vision,
-        vision_dpi=vision_dpi
+        vision_dpi=vision_dpi,
+        threads=threads
     )
 
 

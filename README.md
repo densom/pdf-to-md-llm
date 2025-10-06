@@ -139,7 +139,7 @@ pdf-to-md-llm convert document.pdf --provider openai --model gpt-4o-mini
 Convert entire folders of PDFs:
 
 ```bash
-# Convert all PDFs in a folder
+# Convert all PDFs in a folder (single-threaded)
 pdf-to-md-llm batch ./research-papers
 
 # With custom output folder and vision mode
@@ -147,7 +147,22 @@ pdf-to-md-llm batch ./input-pdfs ./output-markdown --vision
 
 # Batch with OpenAI
 pdf-to-md-llm batch ./pdfs --provider openai --vision
+
+# Use multithreading for faster batch conversion (2 threads)
+pdf-to-md-llm batch ./pdfs --threads 2 --vision
+
+# Use 4 threads for even faster processing
+pdf-to-md-llm batch ./pdfs --threads 4 --vision
+
+# Maximum parallelization (be mindful of API rate limits)
+pdf-to-md-llm batch ./large-batch --threads 8
 ```
+
+**Multithreading Benefits:**
+- Dramatically reduces total conversion time for large batches
+- Efficiently utilizes multi-core processors
+- Thread count can be adjusted based on system resources and API rate limits
+- Default is single-threaded (1 thread) to avoid rate limit issues
 
 ### Scenario 6: Simple Text Documents
 
@@ -233,6 +248,16 @@ batch_convert(
     output_folder="./markdown",  # Optional
     provider="anthropic",
     use_vision=True,
+    verbose=True
+)
+
+# Batch convert with multithreading for faster processing
+batch_convert(
+    input_folder="./pdfs",
+    output_folder="./markdown",
+    provider="anthropic",
+    use_vision=True,
+    threads=4,  # Use 4 threads for parallel processing
     verbose=True
 )
 ```
@@ -427,7 +452,8 @@ def batch_convert(
     max_tokens: int = 4000,
     verbose: bool = True,
     use_vision: bool = False,
-    vision_dpi: int = 150
+    vision_dpi: int = 150,
+    threads: int = 1
 ) -> None
 ```
 
@@ -436,7 +462,14 @@ Convert all PDFs in a folder to markdown.
 **Parameters:**
 - `input_folder`: Folder containing PDF files
 - `output_folder`: Optional output folder (defaults to input folder)
+- `threads`: Number of threads for parallel processing (default: 1 for single-threaded)
 - All other parameters same as `convert_pdf_to_markdown()`
+
+**Note on Multithreading:**
+- Single-threaded (`threads=1`): Default, sequential processing
+- Multithreaded (`threads>1`): Parallel processing for faster batch conversion
+- Be mindful of API rate limits when using higher thread counts
+- Progress output is simplified in multithreaded mode for clarity
 
 #### `extract_text_from_pdf()`
 
