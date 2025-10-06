@@ -65,6 +65,24 @@ ANTHROPIC_API_KEY=your-anthropic-api-key-here
 OPENAI_API_KEY=your-openai-api-key-here
 ```
 
+### Default Models (Optimized for Cost/Quality)
+
+The tool uses cost-effective models by default:
+- **Anthropic**: `claude-3-5-haiku-20241022` ($0.80 input / $4 output per million tokens)
+- **OpenAI**: `gpt-4o-mini` ($0.15 input / $0.60 output per million tokens)
+
+These defaults provide excellent quality for most PDF conversion tasks at significantly lower cost. For complex documents requiring maximum accuracy, you can override with premium models:
+
+```bash
+# Use more powerful Anthropic model for complex documents
+pdf-to-md-llm convert complex-doc.pdf --model claude-sonnet-4-20250514 --vision
+
+# Use OpenAI's flagship model
+pdf-to-md-llm convert complex-doc.pdf --provider openai --model gpt-4o --vision
+```
+
+To see all available models from your configured providers, see [List Available Models](#list-available-models).
+
 ## Usage Examples
 
 ### Basic Conversion
