@@ -152,7 +152,26 @@ pdf-to-md-llm --help
 # Show help for specific commands
 pdf-to-md-llm convert --help
 pdf-to-md-llm batch --help
+pdf-to-md-llm models --help
 ```
+
+### List Available Models
+
+Check which AI models are available from your configured providers:
+
+```bash
+# List all available models from all configured providers
+pdf-to-md-llm models
+
+# List models from a specific provider
+pdf-to-md-llm models --provider anthropic
+pdf-to-md-llm models --provider openai
+```
+
+The `models` command will:
+- Show available models from providers that have API keys configured
+- Display the default model for each provider
+- Only query providers with valid API keys in your environment
 
 ## Using as a Python Library
 
