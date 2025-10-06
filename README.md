@@ -1,6 +1,6 @@
 # PDF to Markdown Converter
 
-Convert PDF documents to clean, well-structured Markdown using LLM-assisted processing. Powered by Antrhopic and OpenAI models for intelligent extraction of text, tables, and complex layouts.
+Library and CLI to convert PDF documents to clean, well-structured Markdown using LLM-assisted processing, leveraging Antrhopic and OpenAI models for intelligent extraction of text, tables, and complex layouts.
 
 ## Features
 
