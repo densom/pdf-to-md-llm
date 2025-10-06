@@ -1,7 +1,7 @@
 [project]
 name = "pdf-to-md-llm"
-version = "2.0.0"
-description = "Convert PDF documents to clean Markdown using Claude API"
+version = "2.0.1"
+description = "Library and CLI to convert PDF documents to clean, well-structured Markdown using LLM-assisted processing, leveraging Antrhopic and OpenAI models for intelligent extraction of text, tables, and complex layouts."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
