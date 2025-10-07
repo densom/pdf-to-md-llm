@@ -179,6 +179,9 @@ pdf-to-md-llm convert simple-doc.pdf --pages-per-chunk 10
 ### Getting Help
 
 ```bash
+# Check the installed version
+pdf-to-md-llm --version
+
 # Show all available options
 pdf-to-md-llm --help
 
