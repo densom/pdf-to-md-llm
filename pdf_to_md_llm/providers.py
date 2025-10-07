@@ -6,6 +6,11 @@ from abc import ABC, abstractmethod
 from typing import Optional, List, Dict, Any
 import os
 
+
+class TruncationError(Exception):
+    """Raised when API response is truncated due to max_tokens limit"""
+    pass
+
 # Shared conversion prompts
 CONVERSION_PROMPT = """Convert this text from a PDF document to clean, well-structured markdown.
 
@@ -160,6 +165,14 @@ class AnthropicProvider(AIProvider):
             }]
         )
 
+        # Check for truncation
+        if message.stop_reason == "max_tokens":
+            raise TruncationError(
+                f"Response truncated at {message.usage.output_tokens} tokens. "
+                f"The markdown conversion is incomplete. "
+                f"Try reducing --pages-per-chunk (current max_tokens: {max_tokens})."
+            )
+
         return message.content[0].text
 
     def convert_to_markdown_vision(
@@ -204,6 +217,14 @@ class AnthropicProvider(AIProvider):
                 "content": content_blocks
             }]
         )
+
+        # Check for truncation
+        if message.stop_reason == "max_tokens":
+            raise TruncationError(
+                f"Response truncated at {message.usage.output_tokens} tokens. "
+                f"The markdown conversion is incomplete. "
+                f"Try reducing --pages-per-chunk or --vision-pages-per-chunk (current max_tokens: {max_tokens})."
+            )
 
         return message.content[0].text
 
@@ -262,6 +283,15 @@ class OpenAIProvider(AIProvider):
             }]
         )
 
+        # Check for truncation
+        if response.choices[0].finish_reason == "length":
+            tokens_used = response.usage.completion_tokens if response.usage else max_tokens
+            raise TruncationError(
+                f"Response truncated at {tokens_used} tokens. "
+                f"The markdown conversion is incomplete. "
+                f"Try reducing --pages-per-chunk (current max_tokens: {max_tokens})."
+            )
+
         return response.choices[0].message.content
 
     def convert_to_markdown_vision(
@@ -304,6 +334,15 @@ class OpenAIProvider(AIProvider):
                 "content": content_parts
             }]
         )
+
+        # Check for truncation
+        if response.choices[0].finish_reason == "length":
+            tokens_used = response.usage.completion_tokens if response.usage else max_tokens
+            raise TruncationError(
+                f"Response truncated at {tokens_used} tokens. "
+                f"The markdown conversion is incomplete. "
+                f"Try reducing --pages-per-chunk or --vision-pages-per-chunk (current max_tokens: {max_tokens})."
+            )
 
         return response.choices[0].message.content
 

@@ -264,10 +264,12 @@ def models(provider):
 @click.argument('output_folder', type=click.Path(), required=False)
 @click.option('--threads', type=int, default=DEFAULT_THREADS,
               help=f'Number of threads for parallel processing (default: {DEFAULT_THREADS}). Use 2+ for faster batch conversion.')
+@click.option('--skip-existing', is_flag=True, default=False,
+              help='Skip files that already have corresponding .md files in the output directory')
 @vision_options
 @chunking_options
 @provider_options
-def batch(input_folder, output_folder, threads, provider, model, api_key, pages_per_chunk, vision, vision_dpi, vision_pages_per_chunk):
+def batch(input_folder, output_folder, threads, skip_existing, provider, model, api_key, pages_per_chunk, vision, vision_dpi, vision_pages_per_chunk):
     """Convert all PDF files in a folder to markdown.
 
     INPUT_FOLDER: Folder containing PDF files
@@ -296,7 +298,8 @@ def batch(input_folder, output_folder, threads, provider, model, api_key, pages_
         model=model,
         use_vision=vision,
         vision_dpi=vision_dpi,
-        threads=threads
+        threads=threads,
+        skip_existing=skip_existing
     )
 
 
