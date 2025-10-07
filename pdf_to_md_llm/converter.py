@@ -19,23 +19,6 @@ DEFAULT_VISION_PAGES_PER_CHUNK = 8
 DEFAULT_THREADS = 1
 
 
-def handle_chunk_conversion_error(chunk_index: int, error: Exception, verbose: bool = True) -> str:
-    """
-    Handle errors during chunk conversion.
-
-    Args:
-        chunk_index: The 1-indexed chunk number that failed
-        error: The exception that occurred
-        verbose: Whether to print error message
-
-    Returns:
-        Error markdown comment to insert in output
-    """
-    if verbose:
-        print(f"  Error converting chunk {chunk_index}: {error}")
-    return f"\n\n<!-- Error converting chunk {chunk_index}: {error} -->\n\n"
-
-
 def extract_text_from_pdf(pdf_path: str) -> List[str]:
     """
     Extract text from PDF, returning a list of page texts.
@@ -251,83 +234,86 @@ def convert_pdf_to_markdown(
     if use_vision and not hasattr(ai_provider, 'convert_to_markdown_vision'):
         raise ValueError(f"Vision mode is not supported by {provider} provider")
 
-    # Extract from PDF
-    if use_vision:
-        if verbose:
-            print(f"Extracting text and images from PDF (DPI: {vision_dpi})...")
-        vision_pages = extract_pages_with_vision(pdf_path, dpi=vision_dpi)
-        if verbose:
-            print(f"  Found {len(vision_pages)} pages")
-            images_count = sum(1 for p in vision_pages if p['has_images'])
-            tables_count = sum(1 for p in vision_pages if p['has_tables'])
-            print(f"  Detected {images_count} pages with images, {tables_count} pages with tables")
+    # Determine output path early for cleanup on failure
+    if output_path is None:
+        output_path = str(Path(pdf_path).with_suffix('.md'))
 
-        # Use vision-specific chunk size if pages_per_chunk wasn't explicitly set
-        # Otherwise respect the user's choice
-        effective_pages_per_chunk = pages_per_chunk if pages_per_chunk != DEFAULT_PAGES_PER_CHUNK else DEFAULT_VISION_PAGES_PER_CHUNK
-        chunks = chunk_vision_pages(vision_pages, effective_pages_per_chunk)
-        if verbose:
-            print(f"  Created {len(chunks)} chunks ({effective_pages_per_chunk} pages per chunk)")
-
-        # Convert each chunk using vision
-        markdown_chunks = []
-        for i, chunk in enumerate(chunks, 1):
+    try:
+        # Extract from PDF
+        if use_vision:
             if verbose:
-                print(f"  Converting chunk {i}/{len(chunks)} (vision mode)...")
-            try:
+                print(f"Extracting text and images from PDF (DPI: {vision_dpi})...")
+            vision_pages = extract_pages_with_vision(pdf_path, dpi=vision_dpi)
+            if verbose:
+                print(f"  Found {len(vision_pages)} pages")
+                images_count = sum(1 for p in vision_pages if p['has_images'])
+                tables_count = sum(1 for p in vision_pages if p['has_tables'])
+                print(f"  Detected {images_count} pages with images, {tables_count} pages with tables")
+
+            # Use vision-specific chunk size if pages_per_chunk wasn't explicitly set
+            # Otherwise respect the user's choice
+            effective_pages_per_chunk = pages_per_chunk if pages_per_chunk != DEFAULT_PAGES_PER_CHUNK else DEFAULT_VISION_PAGES_PER_CHUNK
+            chunks = chunk_vision_pages(vision_pages, effective_pages_per_chunk)
+            if verbose:
+                print(f"  Created {len(chunks)} chunks ({effective_pages_per_chunk} pages per chunk)")
+
+            # Convert each chunk using vision
+            markdown_chunks = []
+            for i, chunk in enumerate(chunks, 1):
+                if verbose:
+                    print(f"  Converting chunk {i}/{len(chunks)} (vision mode)...")
                 markdown = convert_vision_chunk_to_markdown(ai_provider, chunk, max_tokens)
                 markdown_chunks.append(markdown)
-            except Exception as e:
-                markdown_chunks.append(handle_chunk_conversion_error(i, e, verbose))
-    else:
-        # Original text-only mode
-        if verbose:
-            print("Extracting text from PDF...")
-        pages = extract_text_from_pdf(pdf_path)
-        if verbose:
-            print(f"  Found {len(pages)} pages")
-
-        # Chunk the pages
-        chunks = chunk_pages(pages, pages_per_chunk)
-        if verbose:
-            print(f"  Created {len(chunks)} chunks")
-
-        # Convert each chunk
-        markdown_chunks = []
-        for i, chunk in enumerate(chunks, 1):
+        else:
+            # Original text-only mode
             if verbose:
-                print(f"  Converting chunk {i}/{len(chunks)}...")
-            try:
+                print("Extracting text from PDF...")
+            pages = extract_text_from_pdf(pdf_path)
+            if verbose:
+                print(f"  Found {len(pages)} pages")
+
+            # Chunk the pages
+            chunks = chunk_pages(pages, pages_per_chunk)
+            if verbose:
+                print(f"  Created {len(chunks)} chunks")
+
+            # Convert each chunk
+            markdown_chunks = []
+            for i, chunk in enumerate(chunks, 1):
+                if verbose:
+                    print(f"  Converting chunk {i}/{len(chunks)}...")
                 markdown = convert_chunk_to_markdown(ai_provider, chunk, max_tokens)
                 markdown_chunks.append(markdown)
-            except Exception as e:
-                markdown_chunks.append(handle_chunk_conversion_error(i, e, verbose))
 
-    # Combine all chunks
-    full_markdown = "\n\n---\n\n".join(markdown_chunks)
+        # Combine all chunks
+        full_markdown = "\n\n---\n\n".join(markdown_chunks)
 
-    # Add document metadata header
-    filename = Path(pdf_path).stem
-    header = f"""# {filename}
+        # Add document metadata header
+        filename = Path(pdf_path).stem
+        header = f"""# {filename}
 
 *Converted from PDF using LLM-assisted conversion*
 
 ---
 
 """
-    full_markdown = header + full_markdown
+        full_markdown = header + full_markdown
 
-    # Save to file if output path provided
-    if output_path is None:
-        output_path = str(Path(pdf_path).with_suffix('.md'))
+        # Save to file
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(full_markdown)
 
-    with open(output_path, 'w', encoding='utf-8') as f:
-        f.write(full_markdown)
+        if verbose:
+            print(f"Saved to: {output_path}")
 
-    if verbose:
-        print(f"Saved to: {output_path}")
+        return full_markdown
 
-    return full_markdown
+    except Exception:
+        # Clean up partial output file if it exists
+        if Path(output_path).exists():
+            Path(output_path).unlink()
+        # Re-raise the exception to fail the conversion
+        raise
 
 
 def batch_convert(
@@ -394,6 +380,9 @@ def batch_convert(
         print(f"  Files: {len(pdf_files)} PDF files")
         print()
 
+    # Track failed conversions
+    failed_files = []
+
     # Single-threaded execution (original behavior)
     if threads == 1:
         for i, pdf_file in enumerate(pdf_files, 1):
@@ -421,6 +410,11 @@ def batch_convert(
                     vision_dpi=vision_dpi
                 )
             except Exception as e:
+                # Track the failure
+                failed_files.append({
+                    'file': str(pdf_file),
+                    'error': str(e)
+                })
                 if verbose:
                     print(f"Failed: {e}")
     else:
@@ -428,8 +422,8 @@ def batch_convert(
         completed_count = 0
         progress_lock = threading.Lock()
 
-        def convert_single_file(pdf_file: Path) -> tuple[bool, str]:
-            """Convert a single PDF file and return success status and message."""
+        def convert_single_file(pdf_file: Path) -> tuple[bool, str, Optional[str]]:
+            """Convert a single PDF file and return success status, filename, and error message."""
             nonlocal completed_count
 
             # Preserve subdirectory structure in output
@@ -459,14 +453,14 @@ def batch_convert(
                     if verbose:
                         print(f"[OK] [{completed_count}/{len(pdf_files)}] {pdf_file.name}")
 
-                return True, str(pdf_file)
+                return True, str(pdf_file), None
             except Exception as e:
                 with progress_lock:
                     completed_count += 1
                     if verbose:
                         print(f"[FAILED] [{completed_count}/{len(pdf_files)}] {pdf_file.name}: {e}")
 
-                return False, str(pdf_file)
+                return False, str(pdf_file), str(e)
 
         # Use ThreadPoolExecutor for parallel processing
         with ThreadPoolExecutor(max_workers=threads) as executor:
@@ -479,12 +473,37 @@ def batch_convert(
             # Wait for all tasks to complete
             for future in as_completed(future_to_pdf):
                 try:
-                    future.result()
+                    success, filename, error = future.result()
+                    if not success:
+                        failed_files.append({
+                            'file': filename,
+                            'error': error
+                        })
                 except Exception as e:
+                    pdf_file = future_to_pdf[future]
+                    failed_files.append({
+                        'file': str(pdf_file),
+                        'error': f"Unexpected error: {e}"
+                    })
                     if verbose:
-                        pdf_file = future_to_pdf[future]
                         print(f"Unexpected error processing {pdf_file.name}: {e}")
 
     if verbose:
         print(f"\nBatch conversion complete!")
         print(f"  Output directory: {output_path}")
+
+        # Report summary statistics
+        successful_count = len(pdf_files) - len(failed_files)
+        print(f"\nSummary:")
+        print(f"  Total files: {len(pdf_files)}")
+        print(f"  Successful: {successful_count}")
+        print(f"  Failed: {len(failed_files)}")
+
+        # List failed files if any
+        if failed_files:
+            print(f"\nFailed conversions:")
+            for failure in failed_files:
+                filename = Path(failure['file']).name
+                error = failure['error']
+                print(f"  - {filename}")
+                print(f"    Error: {error}")
