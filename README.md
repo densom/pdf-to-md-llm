@@ -145,6 +145,9 @@ pdf-to-md-llm batch ./research-papers
 # With custom output folder and vision mode
 pdf-to-md-llm batch ./input-pdfs ./output-markdown --vision
 
+# Skip files that already have .md output (useful for resuming interrupted batches)
+pdf-to-md-llm batch ./pdfs --skip-existing --vision
+
 # Batch with OpenAI
 pdf-to-md-llm batch ./pdfs --provider openai --vision
 
@@ -156,6 +159,9 @@ pdf-to-md-llm batch ./pdfs --threads 4 --vision
 
 # Maximum parallelization (be mindful of API rate limits)
 pdf-to-md-llm batch ./large-batch --threads 8
+
+# Combine skip-existing with multithreading for efficient resumption
+pdf-to-md-llm batch ./large-batch --skip-existing --threads 4 --vision
 ```
 
 **Multithreading Benefits:**
@@ -261,6 +267,17 @@ batch_convert(
     provider="anthropic",
     use_vision=True,
     threads=4,  # Use 4 threads for parallel processing
+    verbose=True
+)
+
+# Batch convert with skip_existing to resume interrupted batches
+batch_convert(
+    input_folder="./pdfs",
+    output_folder="./markdown",
+    provider="anthropic",
+    use_vision=True,
+    skip_existing=True,  # Skip files that already have .md output
+    threads=4,
     verbose=True
 )
 ```
@@ -456,7 +473,8 @@ def batch_convert(
     verbose: bool = True,
     use_vision: bool = False,
     vision_dpi: int = 150,
-    threads: int = 1
+    threads: int = 1,
+    skip_existing: bool = False
 ) -> None
 ```
 
@@ -466,6 +484,7 @@ Convert all PDFs in a folder to markdown.
 - `input_folder`: Folder containing PDF files
 - `output_folder`: Optional output folder (defaults to input folder)
 - `threads`: Number of threads for parallel processing (default: 1 for single-threaded)
+- `skip_existing`: Skip files that already have corresponding .md files in output directory (default: False)
 - All other parameters same as `convert_pdf_to_markdown()`
 
 **Note on Multithreading:**

@@ -5,7 +5,7 @@ PDF to Markdown conversion functions
 import pymupdf  # PyMuPDF
 from pathlib import Path
 from typing import List, Optional, Dict, Any
-from .providers import AIProvider, get_provider, validate_api_key_available
+from .providers import AIProvider, get_provider, validate_api_key_available, TruncationError
 import base64
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
@@ -327,7 +327,8 @@ def batch_convert(
     verbose: bool = True,
     use_vision: bool = False,
     vision_dpi: int = DEFAULT_VISION_DPI,
-    threads: int = DEFAULT_THREADS
+    threads: int = DEFAULT_THREADS,
+    skip_existing: bool = False
 ) -> None:
     """
     Convert all PDF files in a folder and its subdirectories to markdown.
@@ -344,6 +345,7 @@ def batch_convert(
         use_vision: Use vision-based processing (images + text)
         vision_dpi: DPI for rendering page images when using vision mode
         threads: Number of threads for parallel processing (default: 1)
+        skip_existing: Skip files that already have corresponding .md files in output directory
 
     Raises:
         ValueError: If API key is not provided and not in environment
@@ -370,14 +372,41 @@ def batch_convert(
             print(f"No PDF files found in {input_folder}")
         return
 
+    # Filter out files that already exist if skip_existing is True
+    skipped_files = []
+    if skip_existing:
+        files_to_process = []
+        for pdf_file in pdf_files:
+            relative_path = pdf_file.relative_to(input_path)
+            output_file = output_path / relative_path.with_suffix('.md')
+
+            if output_file.exists():
+                skipped_files.append(pdf_file)
+                if verbose:
+                    print(f"Skipping {pdf_file.name} (already exists)")
+            else:
+                files_to_process.append(pdf_file)
+
+        pdf_files = files_to_process
+
+    if not pdf_files:
+        if verbose:
+            if skipped_files:
+                print(f"\nAll {len(skipped_files)} PDF files already converted (use without --skip-existing to reconvert)")
+            else:
+                print(f"No PDF files to process")
+        return
+
     if verbose:
         mode = f"multithreaded ({threads} threads)" if threads > 1 else "single-threaded"
-        print(f"Batch Processing Configuration:")
+        print(f"\nBatch Processing Configuration:")
         print(f"  Provider: {provider}")
         print(f"  Model: {ai_provider.model}")
         print(f"  Vision mode: {'enabled' if use_vision else 'disabled'}")
         print(f"  Mode: {mode}")
-        print(f"  Files: {len(pdf_files)} PDF files")
+        if skip_existing and skipped_files:
+            print(f"  Skipped: {len(skipped_files)} files (already exist)")
+        print(f"  Files to process: {len(pdf_files)} PDF files")
         print()
 
     # Track failed conversions
@@ -409,11 +438,21 @@ def batch_convert(
                     use_vision=use_vision,
                     vision_dpi=vision_dpi
                 )
-            except Exception as e:
-                # Track the failure
+            except TruncationError as e:
+                # Track truncation failure
                 failed_files.append({
                     'file': str(pdf_file),
-                    'error': str(e)
+                    'error': str(e),
+                    'error_type': 'truncation'
+                })
+                if verbose:
+                    print(f"Failed (truncation): {e}")
+            except Exception as e:
+                # Track other failures
+                failed_files.append({
+                    'file': str(pdf_file),
+                    'error': str(e),
+                    'error_type': 'other'
                 })
                 if verbose:
                     print(f"Failed: {e}")
@@ -422,8 +461,8 @@ def batch_convert(
         completed_count = 0
         progress_lock = threading.Lock()
 
-        def convert_single_file(pdf_file: Path) -> tuple[bool, str, Optional[str]]:
-            """Convert a single PDF file and return success status, filename, and error message."""
+        def convert_single_file(pdf_file: Path) -> tuple[bool, str, Optional[str], str]:
+            """Convert a single PDF file and return success status, filename, error message, and error type."""
             nonlocal completed_count
 
             # Preserve subdirectory structure in output
@@ -453,14 +492,21 @@ def batch_convert(
                     if verbose:
                         print(f"[OK] [{completed_count}/{len(pdf_files)}] {pdf_file.name}")
 
-                return True, str(pdf_file), None
+                return True, str(pdf_file), None, ""
+            except TruncationError as e:
+                with progress_lock:
+                    completed_count += 1
+                    if verbose:
+                        print(f"[FAILED] [{completed_count}/{len(pdf_files)}] {pdf_file.name}: (truncation) {e}")
+
+                return False, str(pdf_file), str(e), "truncation"
             except Exception as e:
                 with progress_lock:
                     completed_count += 1
                     if verbose:
                         print(f"[FAILED] [{completed_count}/{len(pdf_files)}] {pdf_file.name}: {e}")
 
-                return False, str(pdf_file), str(e)
+                return False, str(pdf_file), str(e), "other"
 
         # Use ThreadPoolExecutor for parallel processing
         with ThreadPoolExecutor(max_workers=threads) as executor:
@@ -473,17 +519,19 @@ def batch_convert(
             # Wait for all tasks to complete
             for future in as_completed(future_to_pdf):
                 try:
-                    success, filename, error = future.result()
+                    success, filename, error, error_type = future.result()
                     if not success:
                         failed_files.append({
                             'file': filename,
-                            'error': error
+                            'error': error,
+                            'error_type': error_type
                         })
                 except Exception as e:
                     pdf_file = future_to_pdf[future]
                     failed_files.append({
                         'file': str(pdf_file),
-                        'error': f"Unexpected error: {e}"
+                        'error': f"Unexpected error: {e}",
+                        'error_type': 'other'
                     })
                     if verbose:
                         print(f"Unexpected error processing {pdf_file.name}: {e}")
@@ -501,9 +549,23 @@ def batch_convert(
 
         # List failed files if any
         if failed_files:
-            print(f"\nFailed conversions:")
-            for failure in failed_files:
-                filename = Path(failure['file']).name
-                error = failure['error']
-                print(f"  - {filename}")
-                print(f"    Error: {error}")
+            # Group failures by error type
+            truncation_failures = [f for f in failed_files if f.get('error_type') == 'truncation']
+            other_failures = [f for f in failed_files if f.get('error_type') != 'truncation']
+
+            if truncation_failures:
+                print(f"\nTruncation errors ({len(truncation_failures)} files):")
+                print(f"  These files exceeded the max_tokens limit during conversion.")
+                print(f"  Try reducing --pages-per-chunk (e.g., --pages-per-chunk 3)")
+                print(f"  Or reduce --vision-pages-per-chunk if using vision mode")
+                for failure in truncation_failures:
+                    filename = Path(failure['file']).name
+                    print(f"  - {filename}")
+
+            if other_failures:
+                print(f"\nOther errors ({len(other_failures)} files):")
+                for failure in other_failures:
+                    filename = Path(failure['file']).name
+                    error = failure['error']
+                    print(f"  - {filename}")
+                    print(f"    Error: {error}")
