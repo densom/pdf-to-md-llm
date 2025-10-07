@@ -90,8 +90,9 @@ def vision_options(f):
 
 
 @click.group(invoke_without_command=True)
+@click.option('--version', is_flag=True, help='Show version and exit')
 @click.pass_context
-def cli(ctx):
+def cli(ctx, version):
     """PDF to Markdown Converter (LLM-Assisted)
 
     Convert PDF documents to clean, well-structured Markdown using AI providers.
@@ -102,6 +103,16 @@ def cli(ctx):
     - ANTHROPIC_API_KEY for Anthropic/Claude
     - OPENAI_API_KEY for OpenAI/GPT
     """
+    # If --version flag is provided, show version and exit
+    if version:
+        from importlib.metadata import version as get_version
+        try:
+            pkg_version = get_version('pdf-to-md-llm')
+            click.echo(pkg_version)
+        except Exception:
+            click.echo('unknown', err=True)
+        ctx.exit()
+
     # If no subcommand is provided, show help
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
