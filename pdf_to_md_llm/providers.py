@@ -62,6 +62,34 @@ Output ONLY the markdown - no explanations or commentary.
 ---
 """
 
+VISION_ONLY_CONVERSION_PROMPT = """Convert these PDF pages to clean, well-structured markdown.
+
+I'm providing page images only. Extract all text and structure from the images.
+
+Requirements:
+- Use proper heading hierarchy (# for main titles, ## for sections, ### for subsections)
+- **TABLES ARE CRITICAL**: Look carefully at the images for ANY tabular data (rows and columns). Tables often have:
+  * Grid lines or borders
+  * Aligned columns of text
+  * Header rows with column titles
+  * Question/Answer pairs in columns
+  * Data organized in rows and columns
+- When you detect tables:
+  * Create proper markdown tables with | separators
+  * Use the image to understand column structure and alignment
+  * If a table spans multiple pages, MERGE it into ONE continuous table (don't repeat headers)
+  * Preserve all rows and columns exactly as shown
+- **REMOVE REPETITIVE ELEMENTS**: Page headers, footers, and contact information that repeat on every page should only appear ONCE in the output
+- For charts/diagrams: describe them clearly in markdown
+- Preserve visual formatting cues (bold sections, indentation, callouts)
+- Handle multi-column layouts properly
+- Preserve all information - don't summarize
+
+Output ONLY the markdown - no explanations or commentary.
+
+---
+"""
+
 
 class AIProvider(ABC):
     """Abstract base class for AI providers"""
@@ -99,7 +127,8 @@ class AIProvider(ABC):
         pages: List[Dict[str, Any]],
         max_tokens: int,
         custom_system_prompt: Optional[str] = None,
-        chunk_number: int = 0
+        chunk_number: int = 0,
+        vision_only: bool = False
     ) -> str:
         """
         Convert pages with vision data to markdown using the AI provider.
@@ -109,6 +138,7 @@ class AIProvider(ABC):
             max_tokens: Maximum tokens for response
             custom_system_prompt: Optional custom instructions to append to the system prompt
             chunk_number: Chunk number for debug logging
+            vision_only: If True, only send images without extracted text
 
         Returns:
             Converted markdown text
@@ -241,14 +271,15 @@ class AnthropicProvider(AIProvider):
         pages: List[Dict[str, Any]],
         max_tokens: int,
         custom_system_prompt: Optional[str] = None,
-        chunk_number: int = 0
+        chunk_number: int = 0,
+        vision_only: bool = False
     ) -> str:
         """Convert pages with vision data to markdown using Claude API"""
         # Build multimodal content blocks
         content_blocks = []
 
         # Build instruction text (base prompt + optional custom prompt)
-        instruction_text = VISION_CONVERSION_PROMPT
+        instruction_text = VISION_ONLY_CONVERSION_PROMPT if vision_only else VISION_CONVERSION_PROMPT
         if custom_system_prompt and custom_system_prompt.strip():
             instruction_text = f"{instruction_text}\nAdditional Instructions:\n{custom_system_prompt.strip()}\n\n---\n"
 
@@ -270,11 +301,12 @@ class AnthropicProvider(AIProvider):
                 }
             })
 
-            # Add extracted text with context
-            content_blocks.append({
-                "type": "text",
-                "text": self._build_vision_page_text(page)
-            })
+            # Add extracted text with context (skip if vision_only)
+            if not vision_only:
+                content_blocks.append({
+                    "type": "text",
+                    "text": self._build_vision_page_text(page)
+                })
 
         # Prepare request data
         request_data = {
@@ -474,14 +506,15 @@ class OpenAIProvider(AIProvider):
         pages: List[Dict[str, Any]],
         max_tokens: int,
         custom_system_prompt: Optional[str] = None,
-        chunk_number: int = 0
+        chunk_number: int = 0,
+        vision_only: bool = False
     ) -> str:
         """Convert pages with vision data to markdown using OpenAI API"""
         # Build multimodal content blocks
         content_parts = []
 
         # Build instruction text (base prompt + optional custom prompt)
-        instruction_text = VISION_CONVERSION_PROMPT
+        instruction_text = VISION_ONLY_CONVERSION_PROMPT if vision_only else VISION_CONVERSION_PROMPT
         if custom_system_prompt and custom_system_prompt.strip():
             instruction_text = f"{instruction_text}\nAdditional Instructions:\n{custom_system_prompt.strip()}\n\n---\n"
 
@@ -501,11 +534,12 @@ class OpenAIProvider(AIProvider):
                 }
             })
 
-            # Add extracted text with context
-            content_parts.append({
-                "type": "text",
-                "text": self._build_vision_page_text(page)
-            })
+            # Add extracted text with context (skip if vision_only)
+            if not vision_only:
+                content_parts.append({
+                    "type": "text",
+                    "text": self._build_vision_page_text(page)
+                })
 
         # Prepare request data
         request_data = {

@@ -168,7 +168,8 @@ def convert_vision_chunk_to_markdown(
     chunk: List[Dict[str, Any]],
     max_tokens: int = DEFAULT_MAX_TOKENS,
     system_prompt: Optional[str] = None,
-    chunk_number: int = 0
+    chunk_number: int = 0,
+    vision_only: bool = False
 ) -> str:
     """
     Send a chunk of pages with vision data to AI provider for markdown conversion.
@@ -179,11 +180,12 @@ def convert_vision_chunk_to_markdown(
         max_tokens: Maximum tokens for response
         system_prompt: Optional custom system prompt to append to conversion instructions
         chunk_number: Chunk number for debug logging
+        vision_only: If True, only send images without extracted text
 
     Returns:
         Converted markdown text
     """
-    return provider.convert_to_markdown_vision(chunk, max_tokens, system_prompt, chunk_number)
+    return provider.convert_to_markdown_vision(chunk, max_tokens, system_prompt, chunk_number, vision_only)
 
 
 def convert_pdf_to_markdown(
@@ -197,6 +199,7 @@ def convert_pdf_to_markdown(
     verbose: bool = True,
     use_vision: bool = False,
     vision_dpi: int = DEFAULT_VISION_DPI,
+    vision_only: bool = False,
     system_prompt: Optional[str] = None,
     debug: bool = False
 ) -> str:
@@ -214,6 +217,7 @@ def convert_pdf_to_markdown(
         verbose: Print progress messages
         use_vision: Use vision-based processing (images + text)
         vision_dpi: DPI for rendering page images when using vision mode
+        vision_only: If True, only send images in vision mode without extracted text
         system_prompt: Optional custom system prompt to append to conversion instructions
         debug: Enable debug mode (detailed logging, save chunks and conversations)
 
@@ -320,7 +324,8 @@ def convert_pdf_to_markdown(
 
                 if verbose or debug:
                     page_range = f"{chunk[0]['page_num'] + 1}-{chunk[-1]['page_num'] + 1}" if len(chunk) > 1 else str(chunk[0]['page_num'] + 1)
-                    print(f"  Converting chunk {i}/{len(chunks)} (pages {page_range}, vision mode)...")
+                    mode_desc = "vision-only mode" if vision_only else "vision mode"
+                    print(f"  Converting chunk {i}/{len(chunks)} (pages {page_range}, {mode_desc})...")
 
                 # Save input chunk in debug mode
                 if debug and debug_path:
@@ -342,7 +347,7 @@ def convert_pdf_to_markdown(
 
                 # Convert chunk
                 start_time = time.time()
-                markdown = convert_vision_chunk_to_markdown(ai_provider, chunk, max_tokens, system_prompt, chunk_number)
+                markdown = convert_vision_chunk_to_markdown(ai_provider, chunk, max_tokens, system_prompt, chunk_number, vision_only)
                 elapsed_time = time.time() - start_time
 
                 if debug:
@@ -453,6 +458,7 @@ def batch_convert(
     vision_dpi: int = DEFAULT_VISION_DPI,
     threads: int = DEFAULT_THREADS,
     skip_existing: bool = False,
+    vision_only: bool = False,
     system_prompt: Optional[str] = None,
     debug: bool = False
 ) -> None:
@@ -470,6 +476,7 @@ def batch_convert(
         verbose: Print progress messages
         use_vision: Use vision-based processing (images + text)
         vision_dpi: DPI for rendering page images when using vision mode
+        vision_only: If True, only send images in vision mode without extracted text
         threads: Number of threads for parallel processing (default: 1)
         skip_existing: Skip files that already have corresponding .md files in output directory
         system_prompt: Optional custom system prompt to append to conversion instructions
@@ -565,6 +572,7 @@ def batch_convert(
                     verbose=verbose,
                     use_vision=use_vision,
                     vision_dpi=vision_dpi,
+                    vision_only=vision_only,
                     system_prompt=system_prompt,
                     debug=debug
                 )
@@ -615,6 +623,7 @@ def batch_convert(
                     verbose=False,  # Suppress per-file output in multithreaded mode
                     use_vision=use_vision,
                     vision_dpi=vision_dpi,
+                    vision_only=vision_only,
                     system_prompt=system_prompt,
                     debug=debug
                 )
