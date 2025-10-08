@@ -5,6 +5,9 @@ AI provider abstraction for PDF to Markdown conversion
 from abc import ABC, abstractmethod
 from typing import Optional, List, Dict, Any
 import os
+import json
+from pathlib import Path
+from datetime import datetime
 
 
 class TruncationError(Exception):
@@ -63,8 +66,19 @@ Output ONLY the markdown - no explanations or commentary.
 class AIProvider(ABC):
     """Abstract base class for AI providers"""
 
+    def __init__(self):
+        """Initialize provider with debug settings"""
+        self.debug = False
+        self.debug_path = None
+
     @abstractmethod
-    def convert_to_markdown(self, text: str, max_tokens: int, custom_system_prompt: Optional[str] = None) -> str:
+    def convert_to_markdown(
+        self,
+        text: str,
+        max_tokens: int,
+        custom_system_prompt: Optional[str] = None,
+        chunk_number: int = 0
+    ) -> str:
         """
         Convert text to markdown using the AI provider.
 
@@ -72,6 +86,7 @@ class AIProvider(ABC):
             text: Text to convert
             max_tokens: Maximum tokens for response
             custom_system_prompt: Optional custom instructions to append to the system prompt
+            chunk_number: Chunk number for debug logging
 
         Returns:
             Converted markdown text
@@ -83,7 +98,8 @@ class AIProvider(ABC):
         self,
         pages: List[Dict[str, Any]],
         max_tokens: int,
-        custom_system_prompt: Optional[str] = None
+        custom_system_prompt: Optional[str] = None,
+        chunk_number: int = 0
     ) -> str:
         """
         Convert pages with vision data to markdown using the AI provider.
@@ -92,6 +108,7 @@ class AIProvider(ABC):
             pages: List of page dicts with 'text' and 'image_base64' keys
             max_tokens: Maximum tokens for response
             custom_system_prompt: Optional custom instructions to append to the system prompt
+            chunk_number: Chunk number for debug logging
 
         Returns:
             Converted markdown text
@@ -99,6 +116,17 @@ class AIProvider(ABC):
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support vision mode"
         )
+
+    def set_debug(self, debug: bool, debug_path: Optional[str] = None):
+        """
+        Enable or disable debug mode.
+
+        Args:
+            debug: Whether to enable debug mode
+            debug_path: Path to debug directory
+        """
+        self.debug = debug
+        self.debug_path = debug_path
 
     def _build_vision_page_text(self, page: Dict[str, Any]) -> str:
         """
@@ -149,13 +177,20 @@ class AnthropicProvider(AIProvider):
             api_key: Anthropic API key (defaults to ANTHROPIC_API_KEY env var)
             model: Model to use
         """
+        super().__init__()
         import anthropic
 
         self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
         self.model = model
         self.client = anthropic.Anthropic(api_key=self.api_key)
 
-    def convert_to_markdown(self, text: str, max_tokens: int, custom_system_prompt: Optional[str] = None) -> str:
+    def convert_to_markdown(
+        self,
+        text: str,
+        max_tokens: int,
+        custom_system_prompt: Optional[str] = None,
+        chunk_number: int = 0
+    ) -> str:
         """Convert text to markdown using Claude API"""
         prompt = CONVERSION_PROMPT.format(text=text)
 
@@ -163,14 +198,33 @@ class AnthropicProvider(AIProvider):
         if custom_system_prompt and custom_system_prompt.strip():
             prompt = f"{prompt}\n\nAdditional Instructions:\n{custom_system_prompt.strip()}"
 
-        message = self.client.messages.create(
-            model=self.model,
-            max_tokens=max_tokens,
-            messages=[{
+        # Prepare request data
+        request_data = {
+            "model": self.model,
+            "max_tokens": max_tokens,
+            "messages": [{
                 "role": "user",
                 "content": prompt
             }]
-        )
+        }
+
+        message = self.client.messages.create(**request_data)
+
+        # Save debug conversation if enabled
+        if self.debug and self.debug_path:
+            self._save_conversation(
+                request_data=request_data,
+                response_data={
+                    "content": message.content[0].text,
+                    "stop_reason": message.stop_reason,
+                    "usage": {
+                        "input_tokens": message.usage.input_tokens,
+                        "output_tokens": message.usage.output_tokens
+                    }
+                },
+                chunk_number=chunk_number,
+                is_vision=False
+            )
 
         # Check for truncation
         if message.stop_reason == "max_tokens":
@@ -186,7 +240,8 @@ class AnthropicProvider(AIProvider):
         self,
         pages: List[Dict[str, Any]],
         max_tokens: int,
-        custom_system_prompt: Optional[str] = None
+        custom_system_prompt: Optional[str] = None,
+        chunk_number: int = 0
     ) -> str:
         """Convert pages with vision data to markdown using Claude API"""
         # Build multimodal content blocks
@@ -221,15 +276,58 @@ class AnthropicProvider(AIProvider):
                 "text": self._build_vision_page_text(page)
             })
 
-        # Make API call
-        message = self.client.messages.create(
-            model=self.model,
-            max_tokens=max_tokens,
-            messages=[{
+        # Prepare request data
+        request_data = {
+            "model": self.model,
+            "max_tokens": max_tokens,
+            "messages": [{
                 "role": "user",
                 "content": content_blocks
             }]
-        )
+        }
+
+        # Make API call
+        message = self.client.messages.create(**request_data)
+
+        # Save debug conversation if enabled (without base64 image data)
+        if self.debug and self.debug_path:
+            # Create sanitized content blocks for debug (replace base64 data with placeholder)
+            debug_content_blocks = []
+            for block in content_blocks:
+                if block.get("type") == "image":
+                    debug_content_blocks.append({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": block["source"]["media_type"],
+                            "data": "<base64 image data omitted for size>"
+                        }
+                    })
+                else:
+                    debug_content_blocks.append(block)
+
+            debug_request_data = {
+                "model": self.model,
+                "max_tokens": max_tokens,
+                "messages": [{
+                    "role": "user",
+                    "content": debug_content_blocks
+                }]
+            }
+
+            self._save_conversation(
+                request_data=debug_request_data,
+                response_data={
+                    "content": message.content[0].text,
+                    "stop_reason": message.stop_reason,
+                    "usage": {
+                        "input_tokens": message.usage.input_tokens,
+                        "output_tokens": message.usage.output_tokens
+                    }
+                },
+                chunk_number=chunk_number,
+                is_vision=True
+            )
 
         # Check for truncation
         if message.stop_reason == "max_tokens":
@@ -240,6 +338,39 @@ class AnthropicProvider(AIProvider):
             )
 
         return message.content[0].text
+
+    def _save_conversation(
+        self,
+        request_data: Dict[str, Any],
+        response_data: Dict[str, Any],
+        chunk_number: int,
+        is_vision: bool
+    ):
+        """Save conversation data to debug directory"""
+        if not self.debug_path:
+            return
+
+        conversations_dir = Path(self.debug_path) / "conversations"
+        conversations_dir.mkdir(parents=True, exist_ok=True)
+
+        # Get PDF name from debug_path (parent directory name)
+        pdf_name = Path(self.debug_path).parent.stem
+
+        conversation = {
+            "timestamp": datetime.now().isoformat(),
+            "provider": "anthropic",
+            "model": self.model,
+            "chunk_number": chunk_number,
+            "is_vision": is_vision,
+            "request": request_data,
+            "response": response_data
+        }
+
+        filename = f"{pdf_name}_chunk_{chunk_number}_conversation.json"
+        filepath = conversations_dir / filename
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(conversation, f, indent=2, ensure_ascii=False)
 
     def validate_config(self) -> bool:
         """Validate Anthropic API key"""
@@ -277,13 +408,20 @@ class OpenAIProvider(AIProvider):
             api_key: OpenAI API key (defaults to OPENAI_API_KEY env var)
             model: Model to use (e.g., gpt-4o, gpt-4-turbo, gpt-3.5-turbo)
         """
+        super().__init__()
         from openai import OpenAI
 
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
         self.model = model
         self.client = OpenAI(api_key=self.api_key)
 
-    def convert_to_markdown(self, text: str, max_tokens: int, custom_system_prompt: Optional[str] = None) -> str:
+    def convert_to_markdown(
+        self,
+        text: str,
+        max_tokens: int,
+        custom_system_prompt: Optional[str] = None,
+        chunk_number: int = 0
+    ) -> str:
         """Convert text to markdown using OpenAI API"""
         prompt = CONVERSION_PROMPT.format(text=text)
 
@@ -291,14 +429,34 @@ class OpenAIProvider(AIProvider):
         if custom_system_prompt and custom_system_prompt.strip():
             prompt = f"{prompt}\n\nAdditional Instructions:\n{custom_system_prompt.strip()}"
 
-        response = self.client.chat.completions.create(
-            model=self.model,
-            max_tokens=max_tokens,
-            messages=[{
+        # Prepare request data
+        request_data = {
+            "model": self.model,
+            "max_tokens": max_tokens,
+            "messages": [{
                 "role": "user",
                 "content": prompt
             }]
-        )
+        }
+
+        response = self.client.chat.completions.create(**request_data)
+
+        # Save debug conversation if enabled
+        if self.debug and self.debug_path:
+            self._save_conversation(
+                request_data=request_data,
+                response_data={
+                    "content": response.choices[0].message.content,
+                    "finish_reason": response.choices[0].finish_reason,
+                    "usage": {
+                        "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
+                        "completion_tokens": response.usage.completion_tokens if response.usage else 0,
+                        "total_tokens": response.usage.total_tokens if response.usage else 0
+                    }
+                },
+                chunk_number=chunk_number,
+                is_vision=False
+            )
 
         # Check for truncation
         if response.choices[0].finish_reason == "length":
@@ -315,7 +473,8 @@ class OpenAIProvider(AIProvider):
         self,
         pages: List[Dict[str, Any]],
         max_tokens: int,
-        custom_system_prompt: Optional[str] = None
+        custom_system_prompt: Optional[str] = None,
+        chunk_number: int = 0
     ) -> str:
         """Convert pages with vision data to markdown using OpenAI API"""
         # Build multimodal content blocks
@@ -348,15 +507,57 @@ class OpenAIProvider(AIProvider):
                 "text": self._build_vision_page_text(page)
             })
 
-        # Make API call
-        response = self.client.chat.completions.create(
-            model=self.model,
-            max_tokens=max_tokens,
-            messages=[{
+        # Prepare request data
+        request_data = {
+            "model": self.model,
+            "max_tokens": max_tokens,
+            "messages": [{
                 "role": "user",
                 "content": content_parts
             }]
-        )
+        }
+
+        # Make API call
+        response = self.client.chat.completions.create(**request_data)
+
+        # Save debug conversation if enabled (without base64 image data)
+        if self.debug and self.debug_path:
+            # Create sanitized content parts for debug (replace base64 data with placeholder)
+            debug_content_parts = []
+            for part in content_parts:
+                if part.get("type") == "image_url":
+                    debug_content_parts.append({
+                        "type": "image_url",
+                        "image_url": {
+                            "url": "<base64 image data omitted for size>"
+                        }
+                    })
+                else:
+                    debug_content_parts.append(part)
+
+            debug_request_data = {
+                "model": self.model,
+                "max_tokens": max_tokens,
+                "messages": [{
+                    "role": "user",
+                    "content": debug_content_parts
+                }]
+            }
+
+            self._save_conversation(
+                request_data=debug_request_data,
+                response_data={
+                    "content": response.choices[0].message.content,
+                    "finish_reason": response.choices[0].finish_reason,
+                    "usage": {
+                        "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
+                        "completion_tokens": response.usage.completion_tokens if response.usage else 0,
+                        "total_tokens": response.usage.total_tokens if response.usage else 0
+                    }
+                },
+                chunk_number=chunk_number,
+                is_vision=True
+            )
 
         # Check for truncation
         if response.choices[0].finish_reason == "length":
@@ -368,6 +569,39 @@ class OpenAIProvider(AIProvider):
             )
 
         return response.choices[0].message.content
+
+    def _save_conversation(
+        self,
+        request_data: Dict[str, Any],
+        response_data: Dict[str, Any],
+        chunk_number: int,
+        is_vision: bool
+    ):
+        """Save conversation data to debug directory"""
+        if not self.debug_path:
+            return
+
+        conversations_dir = Path(self.debug_path) / "conversations"
+        conversations_dir.mkdir(parents=True, exist_ok=True)
+
+        # Get PDF name from debug_path (parent directory name)
+        pdf_name = Path(self.debug_path).parent.stem
+
+        conversation = {
+            "timestamp": datetime.now().isoformat(),
+            "provider": "openai",
+            "model": self.model,
+            "chunk_number": chunk_number,
+            "is_vision": is_vision,
+            "request": request_data,
+            "response": response_data
+        }
+
+        filename = f"{pdf_name}_chunk_{chunk_number}_conversation.json"
+        filepath = conversations_dir / filename
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(conversation, f, indent=2, ensure_ascii=False)
 
     def validate_config(self) -> bool:
         """Validate OpenAI API key"""
