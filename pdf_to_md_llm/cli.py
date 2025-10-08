@@ -112,6 +112,18 @@ def system_prompt_options(f):
         return f(*args, **kwargs)
     return wrapper
 
+def debug_options(f):
+    """Add debug-related options to a command"""
+    @click.option('--debug', is_flag=True, default=False,
+                  help='Enable debug mode: detailed logging, save chunks, images, and AI conversations')
+    # @wraps preserves the original function's metadata (name, docstring, signature).
+    # Without it, Click's introspection would see 'wrapper' instead of the actual command,
+    # breaking help text generation and command registration.
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        return f(*args, **kwargs)
+    return wrapper
+
 
 @click.group(invoke_without_command=True)
 @click.option('--version', is_flag=True, help='Show version and exit')
@@ -145,11 +157,12 @@ def cli(ctx, version):
 @cli.command()
 @click.argument('pdf_file', type=click.Path(exists=True, dir_okay=False))
 @click.argument('output_file', type=click.Path(), required=False)
+@debug_options
 @system_prompt_options
 @vision_options
 @chunking_options
 @provider_options
-def convert(pdf_file, output_file, provider, model, api_key, pages_per_chunk, vision, vision_dpi, vision_pages_per_chunk, system_prompt, system_prompt_file):
+def convert(pdf_file, output_file, provider, model, api_key, pages_per_chunk, vision, vision_dpi, vision_pages_per_chunk, system_prompt, system_prompt_file, debug):
     """Convert a single PDF file to markdown.
 
     PDF_FILE: Path to the PDF file to convert
@@ -178,7 +191,8 @@ def convert(pdf_file, output_file, provider, model, api_key, pages_per_chunk, vi
         model=model,
         use_vision=vision,
         vision_dpi=vision_dpi,
-        system_prompt=final_system_prompt
+        system_prompt=final_system_prompt,
+        debug=debug
     )
 
 
@@ -295,11 +309,12 @@ def models(provider):
               help=f'Number of threads for parallel processing (default: {DEFAULT_THREADS}). Use 2+ for faster batch conversion.')
 @click.option('--skip-existing', is_flag=True, default=False,
               help='Skip files that already have corresponding .md files in the output directory')
+@debug_options
 @system_prompt_options
 @vision_options
 @chunking_options
 @provider_options
-def batch(input_folder, output_folder, threads, skip_existing, provider, model, api_key, pages_per_chunk, vision, vision_dpi, vision_pages_per_chunk, system_prompt, system_prompt_file):
+def batch(input_folder, output_folder, threads, skip_existing, provider, model, api_key, pages_per_chunk, vision, vision_dpi, vision_pages_per_chunk, system_prompt, system_prompt_file, debug):
     """Convert all PDF files in a folder to markdown.
 
     INPUT_FOLDER: Folder containing PDF files
@@ -333,7 +348,8 @@ def batch(input_folder, output_folder, threads, skip_existing, provider, model, 
         vision_dpi=vision_dpi,
         threads=threads,
         skip_existing=skip_existing,
-        system_prompt=final_system_prompt
+        system_prompt=final_system_prompt,
+        debug=debug
     )
 
 

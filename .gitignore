@@ -31,3 +31,4 @@ env/
 notes.md
 .claude/settings.local.json
 /temp
+/debug

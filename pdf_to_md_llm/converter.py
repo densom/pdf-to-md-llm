@@ -9,6 +9,8 @@ from .providers import AIProvider, get_provider, validate_api_key_available, Tru
 import base64
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
+import json
+import time
 
 # Default configuration
 DEFAULT_PROVIDER = "anthropic"
@@ -142,7 +144,8 @@ def convert_chunk_to_markdown(
     provider: AIProvider,
     chunk: str,
     max_tokens: int = DEFAULT_MAX_TOKENS,
-    system_prompt: Optional[str] = None
+    system_prompt: Optional[str] = None,
+    chunk_number: int = 0
 ) -> str:
     """
     Send a chunk of text to AI provider for markdown conversion.
@@ -152,18 +155,20 @@ def convert_chunk_to_markdown(
         chunk: Text chunk to convert
         max_tokens: Maximum tokens for response
         system_prompt: Optional custom system prompt to append to conversion instructions
+        chunk_number: Chunk number for debug logging
 
     Returns:
         Converted markdown text
     """
-    return provider.convert_to_markdown(chunk, max_tokens, system_prompt)
+    return provider.convert_to_markdown(chunk, max_tokens, system_prompt, chunk_number)
 
 
 def convert_vision_chunk_to_markdown(
     provider: AIProvider,
     chunk: List[Dict[str, Any]],
     max_tokens: int = DEFAULT_MAX_TOKENS,
-    system_prompt: Optional[str] = None
+    system_prompt: Optional[str] = None,
+    chunk_number: int = 0
 ) -> str:
     """
     Send a chunk of pages with vision data to AI provider for markdown conversion.
@@ -173,11 +178,12 @@ def convert_vision_chunk_to_markdown(
         chunk: List of page dicts with text and image data
         max_tokens: Maximum tokens for response
         system_prompt: Optional custom system prompt to append to conversion instructions
+        chunk_number: Chunk number for debug logging
 
     Returns:
         Converted markdown text
     """
-    return provider.convert_to_markdown_vision(chunk, max_tokens, system_prompt)
+    return provider.convert_to_markdown_vision(chunk, max_tokens, system_prompt, chunk_number)
 
 
 def convert_pdf_to_markdown(
@@ -191,7 +197,8 @@ def convert_pdf_to_markdown(
     verbose: bool = True,
     use_vision: bool = False,
     vision_dpi: int = DEFAULT_VISION_DPI,
-    system_prompt: Optional[str] = None
+    system_prompt: Optional[str] = None,
+    debug: bool = False
 ) -> str:
     """
     Convert a PDF file to markdown using an AI provider.
@@ -208,6 +215,7 @@ def convert_pdf_to_markdown(
         use_vision: Use vision-based processing (images + text)
         vision_dpi: DPI for rendering page images when using vision mode
         system_prompt: Optional custom system prompt to append to conversion instructions
+        debug: Enable debug mode (detailed logging, save chunks and conversations)
 
     Returns:
         Complete markdown document
@@ -244,51 +252,161 @@ def convert_pdf_to_markdown(
     if output_path is None:
         output_path = str(Path(pdf_path).with_suffix('.md'))
 
+    # Setup debug directories if debug mode is enabled
+    debug_path = None
+    if debug:
+        pdf_name = Path(pdf_path).stem
+        output_dir = Path(output_path).parent
+        debug_path = output_dir / f"{pdf_name}_debug"
+        debug_path.mkdir(parents=True, exist_ok=True)
+
+        # Create subdirectories
+        (debug_path / "chunks_input").mkdir(exist_ok=True)
+        (debug_path / "chunks_output").mkdir(exist_ok=True)
+        (debug_path / "conversations").mkdir(exist_ok=True)
+        if use_vision:
+            (debug_path / "images").mkdir(exist_ok=True)
+
+        # Set debug mode on provider
+        ai_provider.set_debug(True, str(debug_path))
+
+        if verbose or debug:
+            print(f"Debug mode enabled. Debug files will be saved to: {debug_path}")
+
     try:
         # Extract from PDF
         if use_vision:
-            if verbose:
+            if verbose or debug:
                 print(f"Extracting text and images from PDF (DPI: {vision_dpi})...")
+
             vision_pages = extract_pages_with_vision(pdf_path, dpi=vision_dpi)
-            if verbose:
+
+            if verbose or debug:
                 print(f"  Found {len(vision_pages)} pages")
                 images_count = sum(1 for p in vision_pages if p['has_images'])
                 tables_count = sum(1 for p in vision_pages if p['has_tables'])
                 print(f"  Detected {images_count} pages with images, {tables_count} pages with tables")
 
+            # Save page images in debug mode
+            if debug and debug_path:
+                if verbose or debug:
+                    print(f"  Saving page images to debug directory...")
+                for page in vision_pages:
+                    page_num = page['page_num'] + 1  # 1-indexed for filename
+                    img_filename = f"{pdf_name}_page_{page_num}.png"
+                    img_path = debug_path / "images" / img_filename
+
+                    # Decode base64 and save
+                    img_bytes = base64.b64decode(page['image_base64'])
+                    with open(img_path, 'wb') as f:
+                        f.write(img_bytes)
+
             # Use vision-specific chunk size if pages_per_chunk wasn't explicitly set
             # Otherwise respect the user's choice
             effective_pages_per_chunk = pages_per_chunk if pages_per_chunk != DEFAULT_PAGES_PER_CHUNK else DEFAULT_VISION_PAGES_PER_CHUNK
             chunks = chunk_vision_pages(vision_pages, effective_pages_per_chunk)
-            if verbose:
+
+            if verbose or debug:
                 print(f"  Created {len(chunks)} chunks ({effective_pages_per_chunk} pages per chunk)")
+                if debug:
+                    for i, chunk in enumerate(chunks, 1):
+                        page_nums = [p['page_num'] + 1 for p in chunk]
+                        print(f"    Chunk {i}: pages {page_nums}")
 
             # Convert each chunk using vision
             markdown_chunks = []
             for i, chunk in enumerate(chunks, 1):
-                if verbose:
-                    print(f"  Converting chunk {i}/{len(chunks)} (vision mode)...")
-                markdown = convert_vision_chunk_to_markdown(ai_provider, chunk, max_tokens, system_prompt)
+                chunk_number = i - 1  # 0-indexed for filenames
+
+                if verbose or debug:
+                    page_range = f"{chunk[0]['page_num'] + 1}-{chunk[-1]['page_num'] + 1}" if len(chunk) > 1 else str(chunk[0]['page_num'] + 1)
+                    print(f"  Converting chunk {i}/{len(chunks)} (pages {page_range}, vision mode)...")
+
+                # Save input chunk in debug mode
+                if debug and debug_path:
+                    chunk_input = {
+                        "pages": [
+                            {
+                                "page_num": p['page_num'] + 1,
+                                "text": p['text'],
+                                "has_images": p['has_images'],
+                                "has_tables": p['has_tables'],
+                                "image_note": "Image saved separately in images/ directory"
+                            }
+                            for p in chunk
+                        ]
+                    }
+                    input_filename = f"{pdf_name}_chunk_{chunk_number}_input.json"
+                    with open(debug_path / "chunks_input" / input_filename, 'w', encoding='utf-8') as f:
+                        json.dump(chunk_input, f, indent=2, ensure_ascii=False)
+
+                # Convert chunk
+                start_time = time.time()
+                markdown = convert_vision_chunk_to_markdown(ai_provider, chunk, max_tokens, system_prompt, chunk_number)
+                elapsed_time = time.time() - start_time
+
+                if debug:
+                    print(f"    Conversion took {elapsed_time:.2f}s")
+
+                # Save output chunk in debug mode
+                if debug and debug_path:
+                    output_filename = f"{pdf_name}_chunk_{chunk_number}_output.md"
+                    with open(debug_path / "chunks_output" / output_filename, 'w', encoding='utf-8') as f:
+                        f.write(markdown)
+
                 markdown_chunks.append(markdown)
         else:
             # Original text-only mode
-            if verbose:
+            if verbose or debug:
                 print("Extracting text from PDF...")
+
             pages = extract_text_from_pdf(pdf_path)
-            if verbose:
+
+            if verbose or debug:
                 print(f"  Found {len(pages)} pages")
 
             # Chunk the pages
             chunks = chunk_pages(pages, pages_per_chunk)
-            if verbose:
-                print(f"  Created {len(chunks)} chunks")
+
+            if verbose or debug:
+                print(f"  Created {len(chunks)} chunks ({pages_per_chunk} pages per chunk)")
+                if debug:
+                    for i in range(len(chunks)):
+                        start_page = i * pages_per_chunk + 1
+                        end_page = min((i + 1) * pages_per_chunk, len(pages))
+                        print(f"    Chunk {i + 1}: pages {start_page}-{end_page}")
 
             # Convert each chunk
             markdown_chunks = []
             for i, chunk in enumerate(chunks, 1):
-                if verbose:
-                    print(f"  Converting chunk {i}/{len(chunks)}...")
-                markdown = convert_chunk_to_markdown(ai_provider, chunk, max_tokens, system_prompt)
+                chunk_number = i - 1  # 0-indexed for filenames
+
+                if verbose or debug:
+                    start_page = (i - 1) * pages_per_chunk + 1
+                    end_page = min(i * pages_per_chunk, len(pages))
+                    page_range = f"{start_page}-{end_page}" if start_page != end_page else str(start_page)
+                    print(f"  Converting chunk {i}/{len(chunks)} (pages {page_range})...")
+
+                # Save input chunk in debug mode
+                if debug and debug_path:
+                    input_filename = f"{pdf_name}_chunk_{chunk_number}_input.txt"
+                    with open(debug_path / "chunks_input" / input_filename, 'w', encoding='utf-8') as f:
+                        f.write(chunk)
+
+                # Convert chunk
+                start_time = time.time()
+                markdown = convert_chunk_to_markdown(ai_provider, chunk, max_tokens, system_prompt, chunk_number)
+                elapsed_time = time.time() - start_time
+
+                if debug:
+                    print(f"    Conversion took {elapsed_time:.2f}s")
+
+                # Save output chunk in debug mode
+                if debug and debug_path:
+                    output_filename = f"{pdf_name}_chunk_{chunk_number}_output.md"
+                    with open(debug_path / "chunks_output" / output_filename, 'w', encoding='utf-8') as f:
+                        f.write(markdown)
+
                 markdown_chunks.append(markdown)
 
         # Combine all chunks
@@ -335,7 +453,8 @@ def batch_convert(
     vision_dpi: int = DEFAULT_VISION_DPI,
     threads: int = DEFAULT_THREADS,
     skip_existing: bool = False,
-    system_prompt: Optional[str] = None
+    system_prompt: Optional[str] = None,
+    debug: bool = False
 ) -> None:
     """
     Convert all PDF files in a folder and its subdirectories to markdown.
@@ -354,6 +473,7 @@ def batch_convert(
         threads: Number of threads for parallel processing (default: 1)
         skip_existing: Skip files that already have corresponding .md files in output directory
         system_prompt: Optional custom system prompt to append to conversion instructions
+        debug: Enable debug mode (detailed logging, save chunks and conversations)
 
     Raises:
         ValueError: If API key is not provided and not in environment
@@ -445,7 +565,8 @@ def batch_convert(
                     verbose=verbose,
                     use_vision=use_vision,
                     vision_dpi=vision_dpi,
-                    system_prompt=system_prompt
+                    system_prompt=system_prompt,
+                    debug=debug
                 )
             except TruncationError as e:
                 # Track truncation failure
@@ -494,7 +615,8 @@ def batch_convert(
                     verbose=False,  # Suppress per-file output in multithreaded mode
                     use_vision=use_vision,
                     vision_dpi=vision_dpi,
-                    system_prompt=system_prompt
+                    system_prompt=system_prompt,
+                    debug=debug
                 )
 
                 with progress_lock:
