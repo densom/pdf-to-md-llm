@@ -120,6 +120,10 @@ For PDFs containing visual elements like charts, graphs, or diagrams:
 ```bash
 # Vision mode analyzes images and describes visual content
 pdf-to-md-llm convert annual-report.pdf --vision --vision-dpi 200
+
+# Use vision-only mode to rely solely on image analysis (no extracted text)
+# Useful for PDFs where text extraction is unreliable or when you want pure visual analysis
+pdf-to-md-llm convert diagram-heavy.pdf --vision-only --vision-dpi 200
 ```
 
 ### Scenario 4: Using OpenAI GPT Models
@@ -242,6 +246,15 @@ markdown_content = convert_pdf_to_markdown(
     verbose=True  # Show progress
 )
 
+# Convert with vision-only mode (no extracted text, just images)
+markdown_content = convert_pdf_to_markdown(
+    pdf_path="scanned-document.pdf",
+    provider="anthropic",
+    vision_only=True,  # Only use images, skip extracted text
+    vision_dpi=200,  # Higher DPI for better quality
+    verbose=True
+)
+
 # Use OpenAI with custom model
 markdown_content = convert_pdf_to_markdown(
     pdf_path="document.pdf",
@@ -324,6 +337,15 @@ print(f"Created {len(chunks)} chunks")
 - Academic papers or technical documentation
 - Any document where layout matters
 
+**Vision-Only Mode:**
+
+Use `--vision-only` flag to send only page images to the AI without extracted text. This mode:
+- Relies completely on visual analysis of page images
+- Useful when PDF text extraction produces garbled or unreliable text
+- Better for image-heavy documents, scanned PDFs, or when layout is critical
+- Still uses chunking (controlled by `--vision-pages-per-chunk`)
+- Automatically enables `--vision` mode
+
 ## Performance Tips
 
 ### Choosing Between Standard and Vision Mode
@@ -333,6 +355,12 @@ print(f"Created {len(chunks)} chunks")
 - Layout and formatting are important
 - You need accurate table extraction
 - Document has complex multi-column layouts
+
+**Use Vision-Only Mode when:**
+- Text extraction produces garbled or unreliable output
+- Working with scanned PDFs or images embedded in PDFs
+- Visual layout is more important than extracted text
+- You want pure AI visual analysis without text hints
 
 **Use Standard Mode when:**
 - Simple text-only documents
@@ -367,6 +395,9 @@ pdf-to-md-llm convert large.pdf --vision --vision-pages-per-chunk 4
 
 # Larger chunks for better context
 pdf-to-md-llm convert doc.pdf --vision --vision-pages-per-chunk 12
+
+# Vision-only mode with custom chunk size
+pdf-to-md-llm convert scanned.pdf --vision-only --vision-pages-per-chunk 6
 ```
 
 ## Troubleshooting
@@ -417,6 +448,7 @@ pdf-to-md-llm convert doc.pdf --vision --vision-pages-per-chunk 12
 **Solution:**
 - Try vision mode for better layout detection: `--vision`
 - Increase DPI for better image quality: `--vision-dpi 200`
+- Try vision-only mode if extracted text is garbled: `--vision-only`
 - Try different models: `--provider openai --model gpt-4o`
 - Adjust chunk size for better context
 
@@ -437,7 +469,8 @@ def convert_pdf_to_markdown(
     max_tokens: int = 4000,
     verbose: bool = True,
     use_vision: bool = False,
-    vision_dpi: int = 150
+    vision_dpi: int = 150,
+    vision_only: bool = False
 ) -> str
 ```
 
@@ -454,6 +487,7 @@ Convert a single PDF to markdown.
 - `verbose`: Print progress messages (default: True)
 - `use_vision`: Enable vision mode for better extraction (default: False)
 - `vision_dpi`: DPI for page images in vision mode (default: 150)
+- `vision_only`: Use only images without extracted text (default: False, automatically enables use_vision)
 
 **Returns:** The complete markdown content as a string
 
@@ -473,6 +507,7 @@ def batch_convert(
     verbose: bool = True,
     use_vision: bool = False,
     vision_dpi: int = 150,
+    vision_only: bool = False,
     threads: int = 1,
     skip_existing: bool = False
 ) -> None
@@ -483,6 +518,7 @@ Convert all PDFs in a folder to markdown.
 **Parameters:**
 - `input_folder`: Folder containing PDF files
 - `output_folder`: Optional output folder (defaults to input folder)
+- `vision_only`: Use only images without extracted text (default: False, automatically enables use_vision)
 - `threads`: Number of threads for parallel processing (default: 1 for single-threaded)
 - `skip_existing`: Skip files that already have corresponding .md files in output directory (default: False)
 - All other parameters same as `convert_pdf_to_markdown()`
