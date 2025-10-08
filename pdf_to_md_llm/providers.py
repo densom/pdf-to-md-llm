@@ -64,13 +64,14 @@ class AIProvider(ABC):
     """Abstract base class for AI providers"""
 
     @abstractmethod
-    def convert_to_markdown(self, text: str, max_tokens: int) -> str:
+    def convert_to_markdown(self, text: str, max_tokens: int, custom_system_prompt: Optional[str] = None) -> str:
         """
         Convert text to markdown using the AI provider.
 
         Args:
             text: Text to convert
             max_tokens: Maximum tokens for response
+            custom_system_prompt: Optional custom instructions to append to the system prompt
 
         Returns:
             Converted markdown text
@@ -81,7 +82,8 @@ class AIProvider(ABC):
     def convert_to_markdown_vision(
         self,
         pages: List[Dict[str, Any]],
-        max_tokens: int
+        max_tokens: int,
+        custom_system_prompt: Optional[str] = None
     ) -> str:
         """
         Convert pages with vision data to markdown using the AI provider.
@@ -89,6 +91,7 @@ class AIProvider(ABC):
         Args:
             pages: List of page dicts with 'text' and 'image_base64' keys
             max_tokens: Maximum tokens for response
+            custom_system_prompt: Optional custom instructions to append to the system prompt
 
         Returns:
             Converted markdown text
@@ -152,9 +155,13 @@ class AnthropicProvider(AIProvider):
         self.model = model
         self.client = anthropic.Anthropic(api_key=self.api_key)
 
-    def convert_to_markdown(self, text: str, max_tokens: int) -> str:
+    def convert_to_markdown(self, text: str, max_tokens: int, custom_system_prompt: Optional[str] = None) -> str:
         """Convert text to markdown using Claude API"""
         prompt = CONVERSION_PROMPT.format(text=text)
+
+        # Append custom system prompt if provided
+        if custom_system_prompt and custom_system_prompt.strip():
+            prompt = f"{prompt}\n\nAdditional Instructions:\n{custom_system_prompt.strip()}"
 
         message = self.client.messages.create(
             model=self.model,
@@ -178,16 +185,22 @@ class AnthropicProvider(AIProvider):
     def convert_to_markdown_vision(
         self,
         pages: List[Dict[str, Any]],
-        max_tokens: int
+        max_tokens: int,
+        custom_system_prompt: Optional[str] = None
     ) -> str:
         """Convert pages with vision data to markdown using Claude API"""
         # Build multimodal content blocks
         content_blocks = []
 
+        # Build instruction text (base prompt + optional custom prompt)
+        instruction_text = VISION_CONVERSION_PROMPT
+        if custom_system_prompt and custom_system_prompt.strip():
+            instruction_text = f"{instruction_text}\nAdditional Instructions:\n{custom_system_prompt.strip()}\n\n---\n"
+
         # Add instruction text first
         content_blocks.append({
             "type": "text",
-            "text": VISION_CONVERSION_PROMPT
+            "text": instruction_text
         })
 
         # Add each page's image and text
@@ -270,9 +283,13 @@ class OpenAIProvider(AIProvider):
         self.model = model
         self.client = OpenAI(api_key=self.api_key)
 
-    def convert_to_markdown(self, text: str, max_tokens: int) -> str:
+    def convert_to_markdown(self, text: str, max_tokens: int, custom_system_prompt: Optional[str] = None) -> str:
         """Convert text to markdown using OpenAI API"""
         prompt = CONVERSION_PROMPT.format(text=text)
+
+        # Append custom system prompt if provided
+        if custom_system_prompt and custom_system_prompt.strip():
+            prompt = f"{prompt}\n\nAdditional Instructions:\n{custom_system_prompt.strip()}"
 
         response = self.client.chat.completions.create(
             model=self.model,
@@ -297,16 +314,22 @@ class OpenAIProvider(AIProvider):
     def convert_to_markdown_vision(
         self,
         pages: List[Dict[str, Any]],
-        max_tokens: int
+        max_tokens: int,
+        custom_system_prompt: Optional[str] = None
     ) -> str:
         """Convert pages with vision data to markdown using OpenAI API"""
         # Build multimodal content blocks
         content_parts = []
 
+        # Build instruction text (base prompt + optional custom prompt)
+        instruction_text = VISION_CONVERSION_PROMPT
+        if custom_system_prompt and custom_system_prompt.strip():
+            instruction_text = f"{instruction_text}\nAdditional Instructions:\n{custom_system_prompt.strip()}\n\n---\n"
+
         # Add instruction text first
         content_parts.append({
             "type": "text",
-            "text": VISION_CONVERSION_PROMPT
+            "text": instruction_text
         })
 
         # Add each page's image and text

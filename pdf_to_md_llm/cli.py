@@ -40,6 +40,16 @@ def get_effective_pages_per_chunk(pages_per_chunk: int, vision: bool, vision_pag
         return vision_pages_per_chunk
     return pages_per_chunk
 
+def resolve_system_prompt(system_prompt: str = None, system_prompt_file: str = None) -> str:
+    """Resolve the final system prompt from options"""
+    # File takes precedence if both are provided
+    if system_prompt_file:
+        with open(system_prompt_file, 'r', encoding='utf-8') as f:
+            return f.read().strip()
+    elif system_prompt:
+        return system_prompt.strip()
+    return None
+
 # Shared CLI option decorators
 # These decorators implement the Decorator Pattern to add reusable option groups to Click commands.
 # They eliminate duplication by allowing multiple commands to share the same option definitions.
@@ -88,6 +98,20 @@ def vision_options(f):
         return f(*args, **kwargs)
     return wrapper
 
+def system_prompt_options(f):
+    """Add system prompt customization options to a command"""
+    @click.option('--system-prompt', default=None, type=str,
+                  help='Custom instructions to append to the default conversion prompt')
+    @click.option('--system-prompt-file', default=None, type=click.Path(exists=True, dir_okay=False),
+                  help='File containing custom instructions to append to the default conversion prompt')
+    # @wraps preserves the original function's metadata (name, docstring, signature).
+    # Without it, Click's introspection would see 'wrapper' instead of the actual command,
+    # breaking help text generation and command registration.
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        return f(*args, **kwargs)
+    return wrapper
+
 
 @click.group(invoke_without_command=True)
 @click.option('--version', is_flag=True, help='Show version and exit')
@@ -121,10 +145,11 @@ def cli(ctx, version):
 @cli.command()
 @click.argument('pdf_file', type=click.Path(exists=True, dir_okay=False))
 @click.argument('output_file', type=click.Path(), required=False)
+@system_prompt_options
 @vision_options
 @chunking_options
 @provider_options
-def convert(pdf_file, output_file, provider, model, api_key, pages_per_chunk, vision, vision_dpi, vision_pages_per_chunk):
+def convert(pdf_file, output_file, provider, model, api_key, pages_per_chunk, vision, vision_dpi, vision_pages_per_chunk, system_prompt, system_prompt_file):
     """Convert a single PDF file to markdown.
 
     PDF_FILE: Path to the PDF file to convert
@@ -141,6 +166,9 @@ def convert(pdf_file, output_file, provider, model, api_key, pages_per_chunk, vi
     # Determine effective pages per chunk for vision mode
     effective_pages_per_chunk = get_effective_pages_per_chunk(pages_per_chunk, vision, vision_pages_per_chunk)
 
+    # Resolve system prompt from options
+    final_system_prompt = resolve_system_prompt(system_prompt, system_prompt_file)
+
     convert_pdf_to_markdown(
         pdf_file,
         output_file,
@@ -149,7 +177,8 @@ def convert(pdf_file, output_file, provider, model, api_key, pages_per_chunk, vi
         api_key=api_key,
         model=model,
         use_vision=vision,
-        vision_dpi=vision_dpi
+        vision_dpi=vision_dpi,
+        system_prompt=final_system_prompt
     )
 
 
@@ -266,10 +295,11 @@ def models(provider):
               help=f'Number of threads for parallel processing (default: {DEFAULT_THREADS}). Use 2+ for faster batch conversion.')
 @click.option('--skip-existing', is_flag=True, default=False,
               help='Skip files that already have corresponding .md files in the output directory')
+@system_prompt_options
 @vision_options
 @chunking_options
 @provider_options
-def batch(input_folder, output_folder, threads, skip_existing, provider, model, api_key, pages_per_chunk, vision, vision_dpi, vision_pages_per_chunk):
+def batch(input_folder, output_folder, threads, skip_existing, provider, model, api_key, pages_per_chunk, vision, vision_dpi, vision_pages_per_chunk, system_prompt, system_prompt_file):
     """Convert all PDF files in a folder to markdown.
 
     INPUT_FOLDER: Folder containing PDF files
@@ -289,6 +319,9 @@ def batch(input_folder, output_folder, threads, skip_existing, provider, model, 
     # Determine effective pages per chunk for vision mode
     effective_pages_per_chunk = get_effective_pages_per_chunk(pages_per_chunk, vision, vision_pages_per_chunk)
 
+    # Resolve system prompt from options
+    final_system_prompt = resolve_system_prompt(system_prompt, system_prompt_file)
+
     batch_convert(
         input_folder,
         output_folder,
@@ -299,7 +332,8 @@ def batch(input_folder, output_folder, threads, skip_existing, provider, model, 
         use_vision=vision,
         vision_dpi=vision_dpi,
         threads=threads,
-        skip_existing=skip_existing
+        skip_existing=skip_existing,
+        system_prompt=final_system_prompt
     )
 
 

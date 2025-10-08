@@ -141,7 +141,8 @@ def chunk_vision_pages(
 def convert_chunk_to_markdown(
     provider: AIProvider,
     chunk: str,
-    max_tokens: int = DEFAULT_MAX_TOKENS
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+    system_prompt: Optional[str] = None
 ) -> str:
     """
     Send a chunk of text to AI provider for markdown conversion.
@@ -150,17 +151,19 @@ def convert_chunk_to_markdown(
         provider: AI provider instance
         chunk: Text chunk to convert
         max_tokens: Maximum tokens for response
+        system_prompt: Optional custom system prompt to append to conversion instructions
 
     Returns:
         Converted markdown text
     """
-    return provider.convert_to_markdown(chunk, max_tokens)
+    return provider.convert_to_markdown(chunk, max_tokens, system_prompt)
 
 
 def convert_vision_chunk_to_markdown(
     provider: AIProvider,
     chunk: List[Dict[str, Any]],
-    max_tokens: int = DEFAULT_MAX_TOKENS
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+    system_prompt: Optional[str] = None
 ) -> str:
     """
     Send a chunk of pages with vision data to AI provider for markdown conversion.
@@ -169,11 +172,12 @@ def convert_vision_chunk_to_markdown(
         provider: AI provider instance
         chunk: List of page dicts with text and image data
         max_tokens: Maximum tokens for response
+        system_prompt: Optional custom system prompt to append to conversion instructions
 
     Returns:
         Converted markdown text
     """
-    return provider.convert_to_markdown_vision(chunk, max_tokens)
+    return provider.convert_to_markdown_vision(chunk, max_tokens, system_prompt)
 
 
 def convert_pdf_to_markdown(
@@ -186,7 +190,8 @@ def convert_pdf_to_markdown(
     max_tokens: int = DEFAULT_MAX_TOKENS,
     verbose: bool = True,
     use_vision: bool = False,
-    vision_dpi: int = DEFAULT_VISION_DPI
+    vision_dpi: int = DEFAULT_VISION_DPI,
+    system_prompt: Optional[str] = None
 ) -> str:
     """
     Convert a PDF file to markdown using an AI provider.
@@ -202,6 +207,7 @@ def convert_pdf_to_markdown(
         verbose: Print progress messages
         use_vision: Use vision-based processing (images + text)
         vision_dpi: DPI for rendering page images when using vision mode
+        system_prompt: Optional custom system prompt to append to conversion instructions
 
     Returns:
         Complete markdown document
@@ -262,7 +268,7 @@ def convert_pdf_to_markdown(
             for i, chunk in enumerate(chunks, 1):
                 if verbose:
                     print(f"  Converting chunk {i}/{len(chunks)} (vision mode)...")
-                markdown = convert_vision_chunk_to_markdown(ai_provider, chunk, max_tokens)
+                markdown = convert_vision_chunk_to_markdown(ai_provider, chunk, max_tokens, system_prompt)
                 markdown_chunks.append(markdown)
         else:
             # Original text-only mode
@@ -282,7 +288,7 @@ def convert_pdf_to_markdown(
             for i, chunk in enumerate(chunks, 1):
                 if verbose:
                     print(f"  Converting chunk {i}/{len(chunks)}...")
-                markdown = convert_chunk_to_markdown(ai_provider, chunk, max_tokens)
+                markdown = convert_chunk_to_markdown(ai_provider, chunk, max_tokens, system_prompt)
                 markdown_chunks.append(markdown)
 
         # Combine all chunks
@@ -328,7 +334,8 @@ def batch_convert(
     use_vision: bool = False,
     vision_dpi: int = DEFAULT_VISION_DPI,
     threads: int = DEFAULT_THREADS,
-    skip_existing: bool = False
+    skip_existing: bool = False,
+    system_prompt: Optional[str] = None
 ) -> None:
     """
     Convert all PDF files in a folder and its subdirectories to markdown.
@@ -346,6 +353,7 @@ def batch_convert(
         vision_dpi: DPI for rendering page images when using vision mode
         threads: Number of threads for parallel processing (default: 1)
         skip_existing: Skip files that already have corresponding .md files in output directory
+        system_prompt: Optional custom system prompt to append to conversion instructions
 
     Raises:
         ValueError: If API key is not provided and not in environment
@@ -436,7 +444,8 @@ def batch_convert(
                     max_tokens=max_tokens,
                     verbose=verbose,
                     use_vision=use_vision,
-                    vision_dpi=vision_dpi
+                    vision_dpi=vision_dpi,
+                    system_prompt=system_prompt
                 )
             except TruncationError as e:
                 # Track truncation failure
@@ -484,7 +493,8 @@ def batch_convert(
                     max_tokens=max_tokens,
                     verbose=False,  # Suppress per-file output in multithreaded mode
                     use_vision=use_vision,
-                    vision_dpi=vision_dpi
+                    vision_dpi=vision_dpi,
+                    system_prompt=system_prompt
                 )
 
                 with progress_lock:
