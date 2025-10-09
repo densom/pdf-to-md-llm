@@ -51,11 +51,26 @@ Requirements:
   * Use the image to understand column structure and alignment
   * If a table spans multiple pages, MERGE it into ONE continuous table (don't repeat headers)
   * Preserve all rows and columns exactly as shown
+  * **MERGED HEADER CELLS**: Many tables have merged cells in the header row (one cell spanning multiple columns). Handle these by:
+    - Repeating the merged header text across the spanned columns, OR
+    - Using HTML table syntax if markdown can't represent the structure
+  * **MULTI-PARAGRAPH CELLS**: Table cells often contain multiple paragraphs, bullet points, or line breaks. You MUST:
+    - Preserve ALL paragraphs within each cell - do not truncate or summarize
+    - Use `<br>` tags to separate paragraphs within cells (markdown tables don't support blank lines)
+    - Check the image carefully to ensure no text is missing from cells
+    - If a cell has bullet points, preserve them using `<br>-`
+  * **CELL CONTENT COMPLETENESS**: Before finalizing a table, verify EVERY cell against the image to ensure:
+    - No paragraphs are missing from multi-paragraph cells
+    - All bullet points are included
+    - All numerical data is complete
+    - No text has been truncated
 - **REMOVE REPETITIVE ELEMENTS**: Page headers, footers, and contact information that repeat on every page should only appear ONCE in the output
 - For charts/diagrams: describe them clearly in markdown
 - Preserve visual formatting cues (bold sections, indentation, callouts)
 - Handle multi-column layouts properly
-- Preserve all information - don't summarize
+- **Preserve all information - NEVER summarize or omit content, especially in table cells**
+
+{overlap_instructions}
 
 Output ONLY the markdown - no explanations or commentary.
 
@@ -79,11 +94,26 @@ Requirements:
   * Use the image to understand column structure and alignment
   * If a table spans multiple pages, MERGE it into ONE continuous table (don't repeat headers)
   * Preserve all rows and columns exactly as shown
+   * **MERGED HEADER CELLS**: Many tables have merged cells in the header row (one cell spanning multiple columns). Handle these by:
+    - Repeating the merged header text across the spanned columns, OR
+    - Using HTML table syntax if markdown can't represent the structure
+  * **MULTI-PARAGRAPH CELLS**: Table cells often contain multiple paragraphs, bullet points, or line breaks. You MUST:
+    - Preserve ALL paragraphs within each cell - do not truncate or summarize
+    - Use `<br>` tags to separate paragraphs within cells (markdown tables don't support blank lines)
+    - Check the image carefully to ensure no text is missing from cells
+    - If a cell has bullet points, preserve them using `<br>-`
+  * **CELL CONTENT COMPLETENESS**: Before finalizing a table, verify EVERY cell against the image to ensure:
+    - No paragraphs are missing from multi-paragraph cells
+    - All bullet points are included
+    - All numerical data is complete
+    - No text has been truncated
 - **REMOVE REPETITIVE ELEMENTS**: Page headers, footers, and contact information that repeat on every page should only appear ONCE in the output
 - For charts/diagrams: describe them clearly in markdown
 - Preserve visual formatting cues (bold sections, indentation, callouts)
 - Handle multi-column layouts properly
-- Preserve all information - don't summarize
+- **Preserve all information - NEVER summarize or omit content, especially in table cells**
+
+{overlap_instructions}
 
 Output ONLY the markdown - no explanations or commentary.
 
@@ -128,7 +158,8 @@ class AIProvider(ABC):
         max_tokens: int,
         custom_system_prompt: Optional[str] = None,
         chunk_number: int = 0,
-        vision_only: bool = False
+        vision_only: bool = False,
+        has_overlap: bool = False
     ) -> str:
         """
         Convert pages with vision data to markdown using the AI provider.
@@ -139,6 +170,7 @@ class AIProvider(ABC):
             custom_system_prompt: Optional custom instructions to append to the system prompt
             chunk_number: Chunk number for debug logging
             vision_only: If True, only send images without extracted text
+            has_overlap: If True, chunks have overlapping pages for continuity
 
         Returns:
             Converted markdown text
@@ -272,14 +304,22 @@ class AnthropicProvider(AIProvider):
         max_tokens: int,
         custom_system_prompt: Optional[str] = None,
         chunk_number: int = 0,
-        vision_only: bool = False
+        vision_only: bool = False,
+        has_overlap: bool = False
     ) -> str:
         """Convert pages with vision data to markdown using Claude API"""
         # Build multimodal content blocks
         content_blocks = []
 
+        # Build overlap instructions if applicable
+        overlap_instructions = ""
+        if has_overlap:
+            overlap_instructions = """**NOTE**: Some pages in this chunk may overlap with the previous or next chunk to maintain context across boundaries. When processing overlapping pages, ensure continuity of content (especially tables and sections that span multiple pages)."""
+
         # Build instruction text (base prompt + optional custom prompt)
-        instruction_text = VISION_ONLY_CONVERSION_PROMPT if vision_only else VISION_CONVERSION_PROMPT
+        base_prompt = VISION_ONLY_CONVERSION_PROMPT if vision_only else VISION_CONVERSION_PROMPT
+        instruction_text = base_prompt.format(overlap_instructions=overlap_instructions)
+
         if custom_system_prompt and custom_system_prompt.strip():
             instruction_text = f"{instruction_text}\nAdditional Instructions:\n{custom_system_prompt.strip()}\n\n---\n"
 
@@ -507,14 +547,22 @@ class OpenAIProvider(AIProvider):
         max_tokens: int,
         custom_system_prompt: Optional[str] = None,
         chunk_number: int = 0,
-        vision_only: bool = False
+        vision_only: bool = False,
+        has_overlap: bool = False
     ) -> str:
         """Convert pages with vision data to markdown using OpenAI API"""
         # Build multimodal content blocks
         content_parts = []
 
+        # Build overlap instructions if applicable
+        overlap_instructions = ""
+        if has_overlap:
+            overlap_instructions = """**NOTE**: Some pages in this chunk may overlap with the previous or next chunk to maintain context across boundaries. When processing overlapping pages, ensure continuity of content (especially tables and sections that span multiple pages)."""
+
         # Build instruction text (base prompt + optional custom prompt)
-        instruction_text = VISION_ONLY_CONVERSION_PROMPT if vision_only else VISION_CONVERSION_PROMPT
+        base_prompt = VISION_ONLY_CONVERSION_PROMPT if vision_only else VISION_CONVERSION_PROMPT
+        instruction_text = base_prompt.format(overlap_instructions=overlap_instructions)
+
         if custom_system_prompt and custom_system_prompt.strip():
             instruction_text = f"{instruction_text}\nAdditional Instructions:\n{custom_system_prompt.strip()}\n\n---\n"
 

@@ -90,6 +90,8 @@ def vision_options(f):
                   help=f'DPI for rendering page images in vision mode (default: {DEFAULT_VISION_DPI})')
     @click.option('--vision-pages-per-chunk', default=None, type=int,
                   help='Pages per chunk in vision mode (overrides --pages-per-chunk for vision mode)')
+    @click.option('--vision-overlap', default=0, type=int,
+                  help='Number of pages to overlap between chunks in vision mode (default: 0, no overlap)')
     @click.option('--vision-only', is_flag=True, default=False,
                   help='Use only images, skip extracted text (automatically enables --vision)')
     # @wraps preserves the original function's metadata (name, docstring, signature).
@@ -164,7 +166,7 @@ def cli(ctx, version):
 @vision_options
 @chunking_options
 @provider_options
-def convert(pdf_file, output_file, provider, model, api_key, pages_per_chunk, vision, vision_dpi, vision_pages_per_chunk, vision_only, system_prompt, system_prompt_file, debug):
+def convert(pdf_file, output_file, provider, model, api_key, pages_per_chunk, vision, vision_dpi, vision_pages_per_chunk, vision_overlap, vision_only, system_prompt, system_prompt_file, debug):
     """Convert a single PDF file to markdown.
 
     PDF_FILE: Path to the PDF file to convert
@@ -185,6 +187,11 @@ def convert(pdf_file, output_file, provider, model, api_key, pages_per_chunk, vi
     # Determine effective pages per chunk for vision mode
     effective_pages_per_chunk = get_effective_pages_per_chunk(pages_per_chunk, vision, vision_pages_per_chunk)
 
+    # Validate overlap is less than pages per chunk
+    if vision_overlap >= effective_pages_per_chunk:
+        click.echo(f"Error: --vision-overlap ({vision_overlap}) must be less than pages per chunk ({effective_pages_per_chunk})", err=True)
+        raise click.Abort()
+
     # Resolve system prompt from options
     final_system_prompt = resolve_system_prompt(system_prompt, system_prompt_file)
 
@@ -197,6 +204,7 @@ def convert(pdf_file, output_file, provider, model, api_key, pages_per_chunk, vi
         model=model,
         use_vision=vision,
         vision_dpi=vision_dpi,
+        vision_overlap=vision_overlap,
         vision_only=vision_only,
         system_prompt=final_system_prompt,
         debug=debug
@@ -321,7 +329,7 @@ def models(provider):
 @vision_options
 @chunking_options
 @provider_options
-def batch(input_folder, output_folder, threads, skip_existing, provider, model, api_key, pages_per_chunk, vision, vision_dpi, vision_pages_per_chunk, vision_only, system_prompt, system_prompt_file, debug):
+def batch(input_folder, output_folder, threads, skip_existing, provider, model, api_key, pages_per_chunk, vision, vision_dpi, vision_pages_per_chunk, vision_overlap, vision_only, system_prompt, system_prompt_file, debug):
     """Convert all PDF files in a folder to markdown.
 
     INPUT_FOLDER: Folder containing PDF files
@@ -345,6 +353,11 @@ def batch(input_folder, output_folder, threads, skip_existing, provider, model, 
     # Determine effective pages per chunk for vision mode
     effective_pages_per_chunk = get_effective_pages_per_chunk(pages_per_chunk, vision, vision_pages_per_chunk)
 
+    # Validate overlap is less than pages per chunk
+    if vision_overlap >= effective_pages_per_chunk:
+        click.echo(f"Error: --vision-overlap ({vision_overlap}) must be less than pages per chunk ({effective_pages_per_chunk})", err=True)
+        raise click.Abort()
+
     # Resolve system prompt from options
     final_system_prompt = resolve_system_prompt(system_prompt, system_prompt_file)
 
@@ -357,6 +370,7 @@ def batch(input_folder, output_folder, threads, skip_existing, provider, model, 
         model=model,
         use_vision=vision,
         vision_dpi=vision_dpi,
+        vision_overlap=vision_overlap,
         threads=threads,
         skip_existing=skip_existing,
         vision_only=vision_only,

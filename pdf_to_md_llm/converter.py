@@ -121,7 +121,8 @@ def chunk_pages(pages: List[str], pages_per_chunk: int) -> List[str]:
 
 def chunk_vision_pages(
     pages: List[Dict[str, Any]],
-    pages_per_chunk: int
+    pages_per_chunk: int,
+    overlap: int = 0
 ) -> List[List[Dict[str, Any]]]:
     """
     Group vision-extracted pages into chunks for processing.
@@ -129,14 +130,39 @@ def chunk_vision_pages(
     Args:
         pages: List of page dicts from extract_pages_with_vision
         pages_per_chunk: Number of pages to combine per chunk
+        overlap: Number of pages to overlap between chunks (default: 0)
 
     Returns:
         List of page chunks (each chunk is a list of page dicts)
+
+    Examples:
+        With pages_per_chunk=8, overlap=0:
+            Chunk 1: pages 0-7
+            Chunk 2: pages 8-15
+
+        With pages_per_chunk=8, overlap=2:
+            Chunk 1: pages 0-7
+            Chunk 2: pages 6-13 (overlaps 6-7 from chunk 1)
+            Chunk 3: pages 12-19 (overlaps 12-13 from chunk 2)
     """
+    if overlap >= pages_per_chunk:
+        raise ValueError(f"overlap ({overlap}) must be less than pages_per_chunk ({pages_per_chunk})")
+
     chunks = []
-    for i in range(0, len(pages), pages_per_chunk):
+    step_size = pages_per_chunk - overlap
+
+    i = 0
+    while i < len(pages):
         chunk = pages[i:i + pages_per_chunk]
         chunks.append(chunk)
+
+        # Move to next chunk position
+        i += step_size
+
+        # Stop if we've covered all pages (avoid creating tiny final chunks)
+        if i >= len(pages):
+            break
+
     return chunks
 
 
@@ -169,7 +195,8 @@ def convert_vision_chunk_to_markdown(
     max_tokens: int = DEFAULT_MAX_TOKENS,
     system_prompt: Optional[str] = None,
     chunk_number: int = 0,
-    vision_only: bool = False
+    vision_only: bool = False,
+    has_overlap: bool = False
 ) -> str:
     """
     Send a chunk of pages with vision data to AI provider for markdown conversion.
@@ -181,11 +208,12 @@ def convert_vision_chunk_to_markdown(
         system_prompt: Optional custom system prompt to append to conversion instructions
         chunk_number: Chunk number for debug logging
         vision_only: If True, only send images without extracted text
+        has_overlap: If True, chunks have overlapping pages for continuity
 
     Returns:
         Converted markdown text
     """
-    return provider.convert_to_markdown_vision(chunk, max_tokens, system_prompt, chunk_number, vision_only)
+    return provider.convert_to_markdown_vision(chunk, max_tokens, system_prompt, chunk_number, vision_only, has_overlap)
 
 
 def convert_pdf_to_markdown(
@@ -199,6 +227,7 @@ def convert_pdf_to_markdown(
     verbose: bool = True,
     use_vision: bool = False,
     vision_dpi: int = DEFAULT_VISION_DPI,
+    vision_overlap: int = 0,
     vision_only: bool = False,
     system_prompt: Optional[str] = None,
     debug: bool = False
@@ -217,6 +246,7 @@ def convert_pdf_to_markdown(
         verbose: Print progress messages
         use_vision: Use vision-based processing (images + text)
         vision_dpi: DPI for rendering page images when using vision mode
+        vision_overlap: Number of pages to overlap between chunks in vision mode
         vision_only: If True, only send images in vision mode without extracted text
         system_prompt: Optional custom system prompt to append to conversion instructions
         debug: Enable debug mode (detailed logging, save chunks and conversations)
@@ -308,10 +338,11 @@ def convert_pdf_to_markdown(
             # Use vision-specific chunk size if pages_per_chunk wasn't explicitly set
             # Otherwise respect the user's choice
             effective_pages_per_chunk = pages_per_chunk if pages_per_chunk != DEFAULT_PAGES_PER_CHUNK else DEFAULT_VISION_PAGES_PER_CHUNK
-            chunks = chunk_vision_pages(vision_pages, effective_pages_per_chunk)
+            chunks = chunk_vision_pages(vision_pages, effective_pages_per_chunk, vision_overlap)
 
             if verbose or debug:
-                print(f"  Created {len(chunks)} chunks ({effective_pages_per_chunk} pages per chunk)")
+                overlap_desc = f" with {vision_overlap}-page overlap" if vision_overlap > 0 else ""
+                print(f"  Created {len(chunks)} chunks ({effective_pages_per_chunk} pages per chunk{overlap_desc})")
                 if debug:
                     for i, chunk in enumerate(chunks, 1):
                         page_nums = [p['page_num'] + 1 for p in chunk]
@@ -347,7 +378,8 @@ def convert_pdf_to_markdown(
 
                 # Convert chunk
                 start_time = time.time()
-                markdown = convert_vision_chunk_to_markdown(ai_provider, chunk, max_tokens, system_prompt, chunk_number, vision_only)
+                has_overlap = vision_overlap > 0
+                markdown = convert_vision_chunk_to_markdown(ai_provider, chunk, max_tokens, system_prompt, chunk_number, vision_only, has_overlap)
                 elapsed_time = time.time() - start_time
 
                 if debug:
@@ -456,6 +488,7 @@ def batch_convert(
     verbose: bool = True,
     use_vision: bool = False,
     vision_dpi: int = DEFAULT_VISION_DPI,
+    vision_overlap: int = 0,
     threads: int = DEFAULT_THREADS,
     skip_existing: bool = False,
     vision_only: bool = False,
@@ -476,6 +509,7 @@ def batch_convert(
         verbose: Print progress messages
         use_vision: Use vision-based processing (images + text)
         vision_dpi: DPI for rendering page images when using vision mode
+        vision_overlap: Number of pages to overlap between chunks in vision mode
         vision_only: If True, only send images in vision mode without extracted text
         threads: Number of threads for parallel processing (default: 1)
         skip_existing: Skip files that already have corresponding .md files in output directory
@@ -572,6 +606,7 @@ def batch_convert(
                     verbose=verbose,
                     use_vision=use_vision,
                     vision_dpi=vision_dpi,
+                    vision_overlap=vision_overlap,
                     vision_only=vision_only,
                     system_prompt=system_prompt,
                     debug=debug
@@ -623,6 +658,7 @@ def batch_convert(
                     verbose=False,  # Suppress per-file output in multithreaded mode
                     use_vision=use_vision,
                     vision_dpi=vision_dpi,
+                    vision_overlap=vision_overlap,
                     vision_only=vision_only,
                     system_prompt=system_prompt,
                     debug=debug
