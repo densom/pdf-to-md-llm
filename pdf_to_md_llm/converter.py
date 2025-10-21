@@ -166,6 +166,379 @@ def chunk_vision_pages(
     return chunks
 
 
+def _setup_debug_directories(pdf_path: str, output_path: str, use_vision: bool) -> Optional[Path]:
+    """
+    Setup debug directories for saving intermediate artifacts.
+
+    Args:
+        pdf_path: Path to the PDF file
+        output_path: Path to the output markdown file
+        use_vision: Whether vision mode is enabled
+
+    Returns:
+        Path to debug directory, or None if debug mode is not enabled
+    """
+    pdf_name = Path(pdf_path).stem
+    output_dir = Path(output_path).parent
+    debug_path = output_dir / f"{pdf_name}_debug"
+    debug_path.mkdir(parents=True, exist_ok=True)
+
+    # Create subdirectories
+    (debug_path / "chunks_input").mkdir(exist_ok=True)
+    (debug_path / "chunks_output").mkdir(exist_ok=True)
+    (debug_path / "conversations").mkdir(exist_ok=True)
+    if use_vision:
+        (debug_path / "images").mkdir(exist_ok=True)
+
+    return debug_path
+
+
+def _save_vision_page_images(
+    vision_pages: List[Dict[str, Any]],
+    pdf_name: str,
+    debug_path: Path
+) -> None:
+    """
+    Save page images to debug directory.
+
+    Args:
+        vision_pages: List of page dicts with image_base64 data
+        pdf_name: Name of the PDF file (without extension)
+        debug_path: Path to debug directory
+    """
+    for page in vision_pages:
+        page_num = page['page_num'] + 1  # 1-indexed for filename
+        img_filename = f"{pdf_name}_page_{page_num}.png"
+        img_path = debug_path / "images" / img_filename
+
+        # Decode base64 and save
+        img_bytes = base64.b64decode(page['image_base64'])
+        with open(img_path, 'wb') as f:
+            f.write(img_bytes)
+
+
+def _extract_and_chunk_vision(
+    pdf_path: str,
+    pages_per_chunk: int,
+    vision_dpi: int,
+    vision_overlap: int,
+    debug_path: Optional[Path],
+    verbose: bool
+) -> List[List[Dict[str, Any]]]:
+    """
+    Extract PDF pages with vision data and chunk them.
+
+    Args:
+        pdf_path: Path to the PDF file
+        pages_per_chunk: Number of pages per chunk
+        vision_dpi: DPI for rendering page images
+        vision_overlap: Number of pages to overlap between chunks
+        debug_path: Path to debug directory (if debug mode enabled)
+        verbose: Whether to print progress messages
+
+    Returns:
+        List of vision page chunks
+    """
+    pdf_name = Path(pdf_path).stem
+
+    if verbose:
+        print(f"Extracting text and images from PDF (DPI: {vision_dpi})...")
+
+    vision_pages = extract_pages_with_vision(pdf_path, dpi=vision_dpi)
+
+    if verbose:
+        print(f"  Found {len(vision_pages)} pages")
+        images_count = sum(1 for p in vision_pages if p['has_images'])
+        tables_count = sum(1 for p in vision_pages if p['has_tables'])
+        print(f"  Detected {images_count} pages with images, {tables_count} pages with tables")
+
+    # Save page images in debug mode
+    if debug_path:
+        if verbose:
+            print(f"  Saving page images to debug directory...")
+        _save_vision_page_images(vision_pages, pdf_name, debug_path)
+
+    # Use vision-specific chunk size if pages_per_chunk wasn't explicitly set
+    effective_pages_per_chunk = pages_per_chunk if pages_per_chunk != DEFAULT_PAGES_PER_CHUNK else DEFAULT_VISION_PAGES_PER_CHUNK
+    chunks = chunk_vision_pages(vision_pages, effective_pages_per_chunk, vision_overlap)
+
+    if verbose:
+        overlap_desc = f" with {vision_overlap}-page overlap" if vision_overlap > 0 else ""
+        print(f"  Created {len(chunks)} chunks ({effective_pages_per_chunk} pages per chunk{overlap_desc})")
+        if debug_path:
+            for i, chunk in enumerate(chunks, 1):
+                page_nums = [p['page_num'] + 1 for p in chunk]
+                print(f"    Chunk {i}: pages {page_nums}")
+
+    return chunks
+
+
+def _extract_and_chunk_text(
+    pdf_path: str,
+    pages_per_chunk: int,
+    debug_path: Optional[Path],
+    verbose: bool
+) -> tuple[List[str], int]:
+    """
+    Extract text from PDF and chunk it.
+
+    Args:
+        pdf_path: Path to the PDF file
+        pages_per_chunk: Number of pages per chunk
+        debug_path: Path to debug directory (if debug mode enabled)
+        verbose: Whether to print progress messages
+
+    Returns:
+        Tuple of (chunks, total_pages)
+    """
+    if verbose:
+        print("Extracting text from PDF...")
+
+    pages = extract_text_from_pdf(pdf_path)
+
+    if verbose:
+        print(f"  Found {len(pages)} pages")
+
+    # Chunk the pages
+    chunks = chunk_pages(pages, pages_per_chunk)
+
+    if verbose:
+        print(f"  Created {len(chunks)} chunks ({pages_per_chunk} pages per chunk)")
+        if debug_path:
+            for i in range(len(chunks)):
+                start_page = i * pages_per_chunk + 1
+                end_page = min((i + 1) * pages_per_chunk, len(pages))
+                print(f"    Chunk {i + 1}: pages {start_page}-{end_page}")
+
+    return chunks, len(pages)
+
+
+def _save_text_chunk_debug(
+    chunk: str,
+    chunk_number: int,
+    pdf_name: str,
+    debug_path: Path,
+    is_input: bool
+) -> None:
+    """
+    Save text chunk to debug directory.
+
+    Args:
+        chunk: Text chunk content
+        chunk_number: Chunk number (0-indexed)
+        pdf_name: Name of the PDF file (without extension)
+        debug_path: Path to debug directory
+        is_input: True for input chunks, False for output chunks
+    """
+    subdir = "chunks_input" if is_input else "chunks_output"
+    ext = "txt" if is_input else "md"
+    suffix = "input" if is_input else "output"
+
+    filename = f"{pdf_name}_chunk_{chunk_number}_{suffix}.{ext}"
+    filepath = debug_path / subdir / filename
+
+    with open(filepath, 'w', encoding='utf-8') as f:
+        f.write(chunk)
+
+
+def _save_vision_chunk_debug(
+    chunk: List[Dict[str, Any]],
+    chunk_number: int,
+    pdf_name: str,
+    debug_path: Path
+) -> None:
+    """
+    Save vision chunk metadata to debug directory.
+
+    Args:
+        chunk: Vision chunk (list of page dicts)
+        chunk_number: Chunk number (0-indexed)
+        pdf_name: Name of the PDF file (without extension)
+        debug_path: Path to debug directory
+    """
+    chunk_input = {
+        "pages": [
+            {
+                "page_num": p['page_num'] + 1,
+                "text": p['text'],
+                "has_images": p['has_images'],
+                "has_tables": p['has_tables'],
+                "image_note": "Image saved separately in images/ directory"
+            }
+            for p in chunk
+        ]
+    }
+    filename = f"{pdf_name}_chunk_{chunk_number}_input.json"
+    filepath = debug_path / "chunks_input" / filename
+
+    with open(filepath, 'w', encoding='utf-8') as f:
+        json.dump(chunk_input, f, indent=2, ensure_ascii=False)
+
+
+def _convert_vision_chunks(
+    chunks: List[List[Dict[str, Any]]],
+    ai_provider: AIProvider,
+    max_tokens: int,
+    system_prompt: Optional[str],
+    vision_only: bool,
+    vision_overlap: int,
+    pdf_name: str,
+    debug_path: Optional[Path],
+    verbose: bool
+) -> List[str]:
+    """
+    Convert vision chunks to markdown.
+
+    Args:
+        chunks: List of vision chunks
+        ai_provider: AI provider instance
+        max_tokens: Maximum tokens per API call
+        system_prompt: Optional custom system prompt
+        vision_only: If True, only send images without extracted text
+        vision_overlap: Number of pages overlapping between chunks
+        pdf_name: Name of the PDF file (without extension)
+        debug_path: Path to debug directory (if debug mode enabled)
+        verbose: Whether to print progress messages
+
+    Returns:
+        List of markdown chunks
+    """
+    markdown_chunks = []
+    has_overlap = vision_overlap > 0
+
+    for i, chunk in enumerate(chunks, 1):
+        chunk_number = i - 1  # 0-indexed for filenames
+
+        if verbose:
+            page_range = f"{chunk[0]['page_num'] + 1}-{chunk[-1]['page_num'] + 1}" if len(chunk) > 1 else str(chunk[0]['page_num'] + 1)
+            mode_desc = "vision-only mode" if vision_only else "vision mode"
+            print(f"  Converting chunk {i}/{len(chunks)} (pages {page_range}, {mode_desc})...")
+
+        # Save input chunk in debug mode
+        if debug_path:
+            _save_vision_chunk_debug(chunk, chunk_number, pdf_name, debug_path)
+
+        # Convert chunk
+        start_time = time.time()
+        markdown = convert_vision_chunk_to_markdown(
+            ai_provider, chunk, max_tokens, system_prompt,
+            chunk_number, vision_only, has_overlap
+        )
+        elapsed_time = time.time() - start_time
+
+        if verbose and debug_path:
+            print(f"    Conversion took {elapsed_time:.2f}s")
+
+        # Save output chunk in debug mode
+        if debug_path:
+            _save_text_chunk_debug(markdown, chunk_number, pdf_name, debug_path, is_input=False)
+
+        markdown_chunks.append(markdown)
+
+    return markdown_chunks
+
+
+def _convert_text_chunks(
+    chunks: List[str],
+    ai_provider: AIProvider,
+    max_tokens: int,
+    system_prompt: Optional[str],
+    pages_per_chunk: int,
+    total_pages: int,
+    pdf_name: str,
+    debug_path: Optional[Path],
+    verbose: bool
+) -> List[str]:
+    """
+    Convert text chunks to markdown.
+
+    Args:
+        chunks: List of text chunks
+        ai_provider: AI provider instance
+        max_tokens: Maximum tokens per API call
+        system_prompt: Optional custom system prompt
+        pages_per_chunk: Number of pages per chunk
+        total_pages: Total number of pages in PDF
+        pdf_name: Name of the PDF file (without extension)
+        debug_path: Path to debug directory (if debug mode enabled)
+        verbose: Whether to print progress messages
+
+    Returns:
+        List of markdown chunks
+    """
+    markdown_chunks = []
+
+    for i, chunk in enumerate(chunks, 1):
+        chunk_number = i - 1  # 0-indexed for filenames
+
+        if verbose:
+            start_page = (i - 1) * pages_per_chunk + 1
+            end_page = min(i * pages_per_chunk, total_pages)
+            page_range = f"{start_page}-{end_page}" if start_page != end_page else str(start_page)
+            print(f"  Converting chunk {i}/{len(chunks)} (pages {page_range})...")
+
+        # Save input chunk in debug mode
+        if debug_path:
+            _save_text_chunk_debug(chunk, chunk_number, pdf_name, debug_path, is_input=True)
+
+        # Convert chunk
+        start_time = time.time()
+        markdown = convert_chunk_to_markdown(ai_provider, chunk, max_tokens, system_prompt, chunk_number)
+        elapsed_time = time.time() - start_time
+
+        if verbose and debug_path:
+            print(f"    Conversion took {elapsed_time:.2f}s")
+
+        # Save output chunk in debug mode
+        if debug_path:
+            _save_text_chunk_debug(markdown, chunk_number, pdf_name, debug_path, is_input=False)
+
+        markdown_chunks.append(markdown)
+
+    return markdown_chunks
+
+
+def _generate_markdown_with_metadata(markdown_chunks: List[str], pdf_name: str) -> str:
+    """
+    Combine markdown chunks and add document metadata header.
+
+    Args:
+        markdown_chunks: List of markdown chunks
+        pdf_name: Name of the PDF file (without extension)
+
+    Returns:
+        Complete markdown document with metadata
+    """
+    # Combine all chunks
+    full_markdown = "\n\n---\n\n".join(markdown_chunks)
+
+    # Add document metadata header
+    header = f"""# {pdf_name}
+
+*Converted from PDF using LLM-assisted conversion*
+
+---
+
+"""
+    return header + full_markdown
+
+
+def _save_markdown_output(output_path: str, markdown: str, verbose: bool) -> None:
+    """
+    Save markdown to file.
+
+    Args:
+        output_path: Path to output file
+        markdown: Markdown content to save
+        verbose: Whether to print progress messages
+    """
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write(markdown)
+
+    if verbose:
+        print(f"Saved to: {output_path}")
+
+
 def convert_chunk_to_markdown(
     provider: AIProvider,
     chunk: str,
@@ -257,12 +630,11 @@ def convert_pdf_to_markdown(
     Raises:
         ValueError: If API key is not provided and not in environment
     """
-    # Validate API key is available before initializing provider
+    # Validate API key and initialize AI provider
     is_valid, error_message = validate_api_key_available(provider, api_key)
     if not is_valid:
         raise ValueError(error_message)
 
-    # Initialize AI provider
     ai_provider = get_provider(provider, api_key=api_key, model=model)
 
     if verbose:
@@ -271,7 +643,7 @@ def convert_pdf_to_markdown(
         print(f"Using model: {ai_provider.model}")
         print(f"Vision mode: {'enabled' if use_vision else 'disabled'}")
 
-    # Double-check provider configuration (backup validation)
+    # Validate provider configuration
     if not ai_provider.validate_config():
         provider_upper = provider.upper()
         raise ValueError(
@@ -286,186 +658,42 @@ def convert_pdf_to_markdown(
     if output_path is None:
         output_path = str(Path(pdf_path).with_suffix('.md'))
 
+    pdf_name = Path(pdf_path).stem
+
     # Setup debug directories if debug mode is enabled
     debug_path = None
     if debug:
-        pdf_name = Path(pdf_path).stem
-        output_dir = Path(output_path).parent
-        debug_path = output_dir / f"{pdf_name}_debug"
-        debug_path.mkdir(parents=True, exist_ok=True)
-
-        # Create subdirectories
-        (debug_path / "chunks_input").mkdir(exist_ok=True)
-        (debug_path / "chunks_output").mkdir(exist_ok=True)
-        (debug_path / "conversations").mkdir(exist_ok=True)
-        if use_vision:
-            (debug_path / "images").mkdir(exist_ok=True)
-
-        # Set debug mode on provider
+        debug_path = _setup_debug_directories(pdf_path, output_path, use_vision)
         ai_provider.set_debug(True, str(debug_path))
 
-        if verbose or debug:
+        if verbose:
             print(f"Debug mode enabled. Debug files will be saved to: {debug_path}")
 
     try:
-        # Extract from PDF
+        # Extract and chunk PDF
         if use_vision:
-            if verbose or debug:
-                print(f"Extracting text and images from PDF (DPI: {vision_dpi})...")
-
-            vision_pages = extract_pages_with_vision(pdf_path, dpi=vision_dpi)
-
-            if verbose or debug:
-                print(f"  Found {len(vision_pages)} pages")
-                images_count = sum(1 for p in vision_pages if p['has_images'])
-                tables_count = sum(1 for p in vision_pages if p['has_tables'])
-                print(f"  Detected {images_count} pages with images, {tables_count} pages with tables")
-
-            # Save page images in debug mode
-            if debug and debug_path:
-                if verbose or debug:
-                    print(f"  Saving page images to debug directory...")
-                for page in vision_pages:
-                    page_num = page['page_num'] + 1  # 1-indexed for filename
-                    img_filename = f"{pdf_name}_page_{page_num}.png"
-                    img_path = debug_path / "images" / img_filename
-
-                    # Decode base64 and save
-                    img_bytes = base64.b64decode(page['image_base64'])
-                    with open(img_path, 'wb') as f:
-                        f.write(img_bytes)
-
-            # Use vision-specific chunk size if pages_per_chunk wasn't explicitly set
-            # Otherwise respect the user's choice
-            effective_pages_per_chunk = pages_per_chunk if pages_per_chunk != DEFAULT_PAGES_PER_CHUNK else DEFAULT_VISION_PAGES_PER_CHUNK
-            chunks = chunk_vision_pages(vision_pages, effective_pages_per_chunk, vision_overlap)
-
-            if verbose or debug:
-                overlap_desc = f" with {vision_overlap}-page overlap" if vision_overlap > 0 else ""
-                print(f"  Created {len(chunks)} chunks ({effective_pages_per_chunk} pages per chunk{overlap_desc})")
-                if debug:
-                    for i, chunk in enumerate(chunks, 1):
-                        page_nums = [p['page_num'] + 1 for p in chunk]
-                        print(f"    Chunk {i}: pages {page_nums}")
-
-            # Convert each chunk using vision
-            markdown_chunks = []
-            for i, chunk in enumerate(chunks, 1):
-                chunk_number = i - 1  # 0-indexed for filenames
-
-                if verbose or debug:
-                    page_range = f"{chunk[0]['page_num'] + 1}-{chunk[-1]['page_num'] + 1}" if len(chunk) > 1 else str(chunk[0]['page_num'] + 1)
-                    mode_desc = "vision-only mode" if vision_only else "vision mode"
-                    print(f"  Converting chunk {i}/{len(chunks)} (pages {page_range}, {mode_desc})...")
-
-                # Save input chunk in debug mode
-                if debug and debug_path:
-                    chunk_input = {
-                        "pages": [
-                            {
-                                "page_num": p['page_num'] + 1,
-                                "text": p['text'],
-                                "has_images": p['has_images'],
-                                "has_tables": p['has_tables'],
-                                "image_note": "Image saved separately in images/ directory"
-                            }
-                            for p in chunk
-                        ]
-                    }
-                    input_filename = f"{pdf_name}_chunk_{chunk_number}_input.json"
-                    with open(debug_path / "chunks_input" / input_filename, 'w', encoding='utf-8') as f:
-                        json.dump(chunk_input, f, indent=2, ensure_ascii=False)
-
-                # Convert chunk
-                start_time = time.time()
-                has_overlap = vision_overlap > 0
-                markdown = convert_vision_chunk_to_markdown(ai_provider, chunk, max_tokens, system_prompt, chunk_number, vision_only, has_overlap)
-                elapsed_time = time.time() - start_time
-
-                if debug:
-                    print(f"    Conversion took {elapsed_time:.2f}s")
-
-                # Save output chunk in debug mode
-                if debug and debug_path:
-                    output_filename = f"{pdf_name}_chunk_{chunk_number}_output.md"
-                    with open(debug_path / "chunks_output" / output_filename, 'w', encoding='utf-8') as f:
-                        f.write(markdown)
-
-                markdown_chunks.append(markdown)
+            chunks = _extract_and_chunk_vision(
+                pdf_path, pages_per_chunk, vision_dpi, vision_overlap,
+                debug_path, verbose
+            )
+            markdown_chunks = _convert_vision_chunks(
+                chunks, ai_provider, max_tokens, system_prompt,
+                vision_only, vision_overlap, pdf_name, debug_path, verbose
+            )
         else:
-            # Original text-only mode
-            if verbose or debug:
-                print("Extracting text from PDF...")
+            chunks, total_pages = _extract_and_chunk_text(
+                pdf_path, pages_per_chunk, debug_path, verbose
+            )
+            markdown_chunks = _convert_text_chunks(
+                chunks, ai_provider, max_tokens, system_prompt,
+                pages_per_chunk, total_pages, pdf_name, debug_path, verbose
+            )
 
-            pages = extract_text_from_pdf(pdf_path)
-
-            if verbose or debug:
-                print(f"  Found {len(pages)} pages")
-
-            # Chunk the pages
-            chunks = chunk_pages(pages, pages_per_chunk)
-
-            if verbose or debug:
-                print(f"  Created {len(chunks)} chunks ({pages_per_chunk} pages per chunk)")
-                if debug:
-                    for i in range(len(chunks)):
-                        start_page = i * pages_per_chunk + 1
-                        end_page = min((i + 1) * pages_per_chunk, len(pages))
-                        print(f"    Chunk {i + 1}: pages {start_page}-{end_page}")
-
-            # Convert each chunk
-            markdown_chunks = []
-            for i, chunk in enumerate(chunks, 1):
-                chunk_number = i - 1  # 0-indexed for filenames
-
-                if verbose or debug:
-                    start_page = (i - 1) * pages_per_chunk + 1
-                    end_page = min(i * pages_per_chunk, len(pages))
-                    page_range = f"{start_page}-{end_page}" if start_page != end_page else str(start_page)
-                    print(f"  Converting chunk {i}/{len(chunks)} (pages {page_range})...")
-
-                # Save input chunk in debug mode
-                if debug and debug_path:
-                    input_filename = f"{pdf_name}_chunk_{chunk_number}_input.txt"
-                    with open(debug_path / "chunks_input" / input_filename, 'w', encoding='utf-8') as f:
-                        f.write(chunk)
-
-                # Convert chunk
-                start_time = time.time()
-                markdown = convert_chunk_to_markdown(ai_provider, chunk, max_tokens, system_prompt, chunk_number)
-                elapsed_time = time.time() - start_time
-
-                if debug:
-                    print(f"    Conversion took {elapsed_time:.2f}s")
-
-                # Save output chunk in debug mode
-                if debug and debug_path:
-                    output_filename = f"{pdf_name}_chunk_{chunk_number}_output.md"
-                    with open(debug_path / "chunks_output" / output_filename, 'w', encoding='utf-8') as f:
-                        f.write(markdown)
-
-                markdown_chunks.append(markdown)
-
-        # Combine all chunks
-        full_markdown = "\n\n---\n\n".join(markdown_chunks)
-
-        # Add document metadata header
-        filename = Path(pdf_path).stem
-        header = f"""# {filename}
-
-*Converted from PDF using LLM-assisted conversion*
-
----
-
-"""
-        full_markdown = header + full_markdown
+        # Generate final markdown with metadata
+        full_markdown = _generate_markdown_with_metadata(markdown_chunks, pdf_name)
 
         # Save to file
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.write(full_markdown)
-
-        if verbose:
-            print(f"Saved to: {output_path}")
+        _save_markdown_output(output_path, full_markdown, verbose)
 
         return full_markdown
 
