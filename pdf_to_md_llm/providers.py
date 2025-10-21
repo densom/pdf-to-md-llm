@@ -487,6 +487,54 @@ class OpenAIProvider(AIProvider):
         self.model = model
         self.client = OpenAI(api_key=self.api_key)
 
+    def _uses_responses_api(self) -> bool:
+        """Check if the current model requires the Responses API endpoint"""
+        # GPT-5 models use the Responses API
+        return self.model.startswith("gpt-5")
+
+    def _call_responses_api_vision(self, content_parts: List[Dict[str, Any]], max_tokens: int):
+        """
+        Call the OpenAI Responses API for vision requests.
+
+        Args:
+            content_parts: List of content parts (text and image_url dicts)
+            max_tokens: Maximum tokens for the response
+
+        Returns:
+            Response object from the Responses API
+        """
+        # Build message content array from content_parts
+        message_content = []
+        for part in content_parts:
+            if part.get("type") == "text":
+                message_content.append({
+                    "type": "input_text",
+                    "text": part["text"]
+                })
+            elif part.get("type") == "image_url":
+                # Extract the data URL
+                data_url = part["image_url"]["url"]
+                message_content.append({
+                    "type": "input_image",
+                    "image_url": data_url
+                })
+
+        # Wrap the content in a message type input
+        input_items = [{
+            "type": "message",
+            "role": "user",
+            "content": message_content
+        }]
+
+        # Make the API call
+        response = self.client.responses.create(
+            model=self.model,
+            max_output_tokens=max_tokens,
+            input=input_items
+        )
+
+        return response
+
     def convert_to_markdown(
         self,
         text: str,
@@ -501,45 +549,77 @@ class OpenAIProvider(AIProvider):
         if custom_system_prompt and custom_system_prompt.strip():
             prompt = f"{prompt}\n\nAdditional Instructions:\n{custom_system_prompt.strip()}"
 
-        # Prepare request data
-        request_data = {
-            "model": self.model,
-            "max_tokens": max_tokens,
-            "messages": [{
-                "role": "user",
-                "content": prompt
-            }]
-        }
-
-        response = self.client.chat.completions.create(**request_data)
+        # Make API call using appropriate endpoint
+        if self._uses_responses_api():
+            # Use Responses API for GPT-5 models
+            response = self.client.responses.create(
+                model=self.model,
+                max_output_tokens=max_tokens,
+                input=prompt
+            )
+            response_content = response.output_text
+            # Get finish reason from first output item if it's a message
+            finish_reason = None
+            if response.output and len(response.output) > 0:
+                output_item = response.output[0]
+                if hasattr(output_item, 'status'):
+                    # Map status to finish_reason
+                    finish_reason = 'stop' if output_item.status == 'completed' else output_item.status
+            usage = {
+                "prompt_tokens": response.usage.input_tokens if response.usage else 0,
+                "completion_tokens": response.usage.output_tokens if response.usage else 0,
+                "total_tokens": (response.usage.input_tokens + response.usage.output_tokens) if response.usage else 0
+            }
+        else:
+            # Use Chat Completions API for GPT-4 and earlier models
+            request_data = {
+                "model": self.model,
+                "max_tokens": max_tokens,
+                "messages": [{
+                    "role": "user",
+                    "content": prompt
+                }]
+            }
+            response = self.client.chat.completions.create(**request_data)
+            response_content = response.choices[0].message.content
+            finish_reason = response.choices[0].finish_reason
+            usage = {
+                "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
+                "completion_tokens": response.usage.completion_tokens if response.usage else 0,
+                "total_tokens": response.usage.total_tokens if response.usage else 0
+            }
 
         # Save debug conversation if enabled
         if self.debug and self.debug_path:
+            request_data = {
+                "model": self.model,
+                "max_tokens": max_tokens,
+                "messages": [{
+                    "role": "user",
+                    "content": prompt
+                }]
+            }
             self._save_conversation(
                 request_data=request_data,
                 response_data={
-                    "content": response.choices[0].message.content,
-                    "finish_reason": response.choices[0].finish_reason,
-                    "usage": {
-                        "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
-                        "completion_tokens": response.usage.completion_tokens if response.usage else 0,
-                        "total_tokens": response.usage.total_tokens if response.usage else 0
-                    }
+                    "content": response_content,
+                    "finish_reason": finish_reason,
+                    "usage": usage
                 },
                 chunk_number=chunk_number,
                 is_vision=False
             )
 
         # Check for truncation
-        if response.choices[0].finish_reason == "length":
-            tokens_used = response.usage.completion_tokens if response.usage else max_tokens
+        if finish_reason == "length":
+            tokens_used = usage["completion_tokens"]
             raise TruncationError(
                 f"Response truncated at {tokens_used} tokens. "
                 f"The markdown conversion is incomplete. "
                 f"Try reducing --pages-per-chunk (current max_tokens: {max_tokens})."
             )
 
-        return response.choices[0].message.content
+        return response_content
 
     def convert_to_markdown_vision(
         self,
@@ -589,18 +669,42 @@ class OpenAIProvider(AIProvider):
                     "text": self._build_vision_page_text(page)
                 })
 
-        # Prepare request data
-        request_data = {
-            "model": self.model,
-            "max_tokens": max_tokens,
-            "messages": [{
-                "role": "user",
-                "content": content_parts
-            }]
-        }
-
-        # Make API call
-        response = self.client.chat.completions.create(**request_data)
+        # Make API call using appropriate endpoint
+        if self._uses_responses_api():
+            # Use Responses API for GPT-5 models
+            # Convert content_parts to the format expected by Responses API
+            response = self._call_responses_api_vision(content_parts, max_tokens)
+            response_content = response.output_text
+            # Get finish reason from first output item if it's a message
+            finish_reason = None
+            if response.output and len(response.output) > 0:
+                output_item = response.output[0]
+                if hasattr(output_item, 'status'):
+                    # Map status to finish_reason
+                    finish_reason = 'stop' if output_item.status == 'completed' else output_item.status
+            usage = {
+                "prompt_tokens": response.usage.input_tokens if response.usage else 0,
+                "completion_tokens": response.usage.output_tokens if response.usage else 0,
+                "total_tokens": (response.usage.input_tokens + response.usage.output_tokens) if response.usage else 0
+            }
+        else:
+            # Use Chat Completions API for GPT-4 and earlier models
+            request_data = {
+                "model": self.model,
+                "max_tokens": max_tokens,
+                "messages": [{
+                    "role": "user",
+                    "content": content_parts
+                }]
+            }
+            response = self.client.chat.completions.create(**request_data)
+            response_content = response.choices[0].message.content
+            finish_reason = response.choices[0].finish_reason
+            usage = {
+                "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
+                "completion_tokens": response.usage.completion_tokens if response.usage else 0,
+                "total_tokens": response.usage.total_tokens if response.usage else 0
+            }
 
         # Save debug conversation if enabled (without base64 image data)
         if self.debug and self.debug_path:
@@ -629,28 +733,24 @@ class OpenAIProvider(AIProvider):
             self._save_conversation(
                 request_data=debug_request_data,
                 response_data={
-                    "content": response.choices[0].message.content,
-                    "finish_reason": response.choices[0].finish_reason,
-                    "usage": {
-                        "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
-                        "completion_tokens": response.usage.completion_tokens if response.usage else 0,
-                        "total_tokens": response.usage.total_tokens if response.usage else 0
-                    }
+                    "content": response_content,
+                    "finish_reason": finish_reason,
+                    "usage": usage
                 },
                 chunk_number=chunk_number,
                 is_vision=True
             )
 
         # Check for truncation
-        if response.choices[0].finish_reason == "length":
-            tokens_used = response.usage.completion_tokens if response.usage else max_tokens
+        if finish_reason == "length":
+            tokens_used = usage["completion_tokens"]
             raise TruncationError(
                 f"Response truncated at {tokens_used} tokens. "
                 f"The markdown conversion is incomplete. "
                 f"Try reducing --pages-per-chunk or --vision-pages-per-chunk (current max_tokens: {max_tokens})."
             )
 
-        return response.choices[0].message.content
+        return response_content
 
     def _save_conversation(
         self,
