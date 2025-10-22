@@ -156,12 +156,12 @@ def chunk_vision_pages(
         chunk = pages[i:i + pages_per_chunk]
         chunks.append(chunk)
 
+        # Check if we've already included the last page in this chunk
+        if i + pages_per_chunk >= len(pages):
+            break
+
         # Move to next chunk position
         i += step_size
-
-        # Stop if we've covered all pages (avoid creating tiny final chunks)
-        if i >= len(pages):
-            break
 
     return chunks
 

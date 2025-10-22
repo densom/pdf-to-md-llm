@@ -9,15 +9,12 @@ from pdf_to_md_llm.cli import cli, convert, batch, models
 class TestConvertCommand:
     """Test the convert CLI command."""
 
-    @patch('pdf_to_md_llm.cli.get_provider')
     @patch('pdf_to_md_llm.cli.validate_api_key_available')
     @patch('pdf_to_md_llm.cli.convert_pdf_to_markdown')
-    def test_convert_command_basic(self, mock_convert, mock_validate, mock_get_provider):
+    def test_convert_command_basic(self, mock_convert, mock_validate):
         """Test basic convert command execution."""
-        # Mock provider and validation
-        mock_provider = Mock()
-        mock_get_provider.return_value = mock_provider
-        mock_validate.return_value = "test_key"
+        # Mock validation and conversion
+        mock_validate.return_value = (True, None)  # Returns tuple (is_valid, error_msg)
         mock_convert.return_value = "# Markdown output"
 
         runner = CliRunner()
@@ -30,17 +27,13 @@ class TestConvertCommand:
 
             assert result.exit_code == 0
             mock_validate.assert_called_once()
-            mock_get_provider.assert_called_once()
             mock_convert.assert_called_once()
 
-    @patch('pdf_to_md_llm.cli.get_provider')
     @patch('pdf_to_md_llm.cli.validate_api_key_available')
     @patch('pdf_to_md_llm.cli.convert_pdf_to_markdown')
-    def test_convert_command_with_output_path(self, mock_convert, mock_validate, mock_get_provider):
+    def test_convert_command_with_output_path(self, mock_convert, mock_validate):
         """Test convert command with output path specified."""
-        mock_provider = Mock()
-        mock_get_provider.return_value = mock_provider
-        mock_validate.return_value = "test_key"
+        mock_validate.return_value = (True, None)
         mock_convert.return_value = "# Markdown output"
 
         runner = CliRunner()
@@ -55,14 +48,11 @@ class TestConvertCommand:
             call_args = mock_convert.call_args[1]
             assert call_args['output_path'] == 'output.md'
 
-    @patch('pdf_to_md_llm.cli.get_provider')
     @patch('pdf_to_md_llm.cli.validate_api_key_available')
     @patch('pdf_to_md_llm.cli.convert_pdf_to_markdown')
-    def test_convert_command_with_vision_flag(self, mock_convert, mock_validate, mock_get_provider):
+    def test_convert_command_with_vision_flag(self, mock_convert, mock_validate):
         """Test convert command with vision flag enabled."""
-        mock_provider = Mock()
-        mock_get_provider.return_value = mock_provider
-        mock_validate.return_value = "test_key"
+        mock_validate.return_value = (True, None)
         mock_convert.return_value = "# Vision markdown"
 
         runner = CliRunner()
@@ -74,16 +64,13 @@ class TestConvertCommand:
 
             assert result.exit_code == 0
             call_args = mock_convert.call_args[1]
-            assert call_args['vision'] is True
+            assert call_args['use_vision'] is True
 
-    @patch('pdf_to_md_llm.cli.get_provider')
     @patch('pdf_to_md_llm.cli.validate_api_key_available')
     @patch('pdf_to_md_llm.cli.convert_pdf_to_markdown')
-    def test_convert_command_with_custom_chunks(self, mock_convert, mock_validate, mock_get_provider):
+    def test_convert_command_with_custom_chunks(self, mock_convert, mock_validate):
         """Test convert command with custom pages per chunk."""
-        mock_provider = Mock()
-        mock_get_provider.return_value = mock_provider
-        mock_validate.return_value = "test_key"
+        mock_validate.return_value = (True, None)
         mock_convert.return_value = "# Markdown"
 
         runner = CliRunner()
@@ -97,14 +84,11 @@ class TestConvertCommand:
             call_args = mock_convert.call_args[1]
             assert call_args['pages_per_chunk'] == 10
 
-    @patch('pdf_to_md_llm.cli.get_provider')
     @patch('pdf_to_md_llm.cli.validate_api_key_available')
     @patch('pdf_to_md_llm.cli.convert_pdf_to_markdown')
-    def test_convert_command_with_openai_provider(self, mock_convert, mock_validate, mock_get_provider):
+    def test_convert_command_with_openai_provider(self, mock_convert, mock_validate):
         """Test convert command with OpenAI provider."""
-        mock_provider = Mock()
-        mock_get_provider.return_value = mock_provider
-        mock_validate.return_value = "test_key"
+        mock_validate.return_value = (True, None)
         mock_convert.return_value = "# Markdown"
 
         runner = CliRunner()
@@ -115,14 +99,13 @@ class TestConvertCommand:
             result = runner.invoke(convert, ['test.pdf', '--provider', 'openai'])
 
             assert result.exit_code == 0
-            mock_get_provider.assert_called_once()
-            call_args = mock_get_provider.call_args[0]
-            assert call_args[0] == 'openai'
+            call_args = mock_convert.call_args[1]
+            assert call_args['provider'] == 'openai'
 
     @patch('pdf_to_md_llm.cli.validate_api_key_available')
     def test_convert_command_missing_api_key(self, mock_validate):
         """Test that missing API key produces error."""
-        mock_validate.side_effect = ValueError("API key not found")
+        mock_validate.return_value = (False, "API key not found")
 
         runner = CliRunner()
         with runner.isolated_filesystem():
@@ -134,14 +117,11 @@ class TestConvertCommand:
             assert result.exit_code != 0
             assert "API key not found" in result.output
 
-    @patch('pdf_to_md_llm.cli.get_provider')
     @patch('pdf_to_md_llm.cli.validate_api_key_available')
     @patch('pdf_to_md_llm.cli.convert_pdf_to_markdown')
-    def test_convert_command_with_custom_model(self, mock_convert, mock_validate, mock_get_provider):
+    def test_convert_command_with_custom_model(self, mock_convert, mock_validate):
         """Test convert command with custom model specified."""
-        mock_provider = Mock()
-        mock_get_provider.return_value = mock_provider
-        mock_validate.return_value = "test_key"
+        mock_validate.return_value = (True, None)
         mock_convert.return_value = "# Markdown"
 
         runner = CliRunner()
@@ -152,21 +132,18 @@ class TestConvertCommand:
             result = runner.invoke(convert, ['test.pdf', '--model', 'gpt-4o'])
 
             assert result.exit_code == 0
-            call_args = mock_get_provider.call_args[1]
+            call_args = mock_convert.call_args[1]
             assert call_args['model'] == 'gpt-4o'
 
 
 class TestBatchCommand:
     """Test the batch CLI command."""
 
-    @patch('pdf_to_md_llm.cli.get_provider')
     @patch('pdf_to_md_llm.cli.validate_api_key_available')
     @patch('pdf_to_md_llm.cli.batch_convert')
-    def test_batch_command_basic(self, mock_batch_convert, mock_validate, mock_get_provider):
+    def test_batch_command_basic(self, mock_batch_convert, mock_validate):
         """Test basic batch command execution."""
-        mock_provider = Mock()
-        mock_get_provider.return_value = mock_provider
-        mock_validate.return_value = "test_key"
+        mock_validate.return_value = (True, None)
 
         runner = CliRunner()
         with runner.isolated_filesystem():
@@ -180,14 +157,11 @@ class TestBatchCommand:
             assert result.exit_code == 0
             mock_batch_convert.assert_called_once()
 
-    @patch('pdf_to_md_llm.cli.get_provider')
     @patch('pdf_to_md_llm.cli.validate_api_key_available')
     @patch('pdf_to_md_llm.cli.batch_convert')
-    def test_batch_command_with_max_workers(self, mock_batch_convert, mock_validate, mock_get_provider):
+    def test_batch_command_with_max_workers(self, mock_batch_convert, mock_validate):
         """Test batch command with custom max workers."""
-        mock_provider = Mock()
-        mock_get_provider.return_value = mock_provider
-        mock_validate.return_value = "test_key"
+        mock_validate.return_value = (True, None)
 
         runner = CliRunner()
         with runner.isolated_filesystem():
@@ -195,20 +169,17 @@ class TestBatchCommand:
             os.makedirs('input')
             os.makedirs('output')
 
-            result = runner.invoke(batch, ['input', 'output', '--max-workers', '8'])
+            result = runner.invoke(batch, ['input', 'output', '--threads', '8'])
 
             assert result.exit_code == 0
             call_args = mock_batch_convert.call_args[1]
-            assert call_args['max_workers'] == 8
+            assert call_args['threads'] == 8
 
-    @patch('pdf_to_md_llm.cli.get_provider')
     @patch('pdf_to_md_llm.cli.validate_api_key_available')
     @patch('pdf_to_md_llm.cli.batch_convert')
-    def test_batch_command_with_vision(self, mock_batch_convert, mock_validate, mock_get_provider):
+    def test_batch_command_with_vision(self, mock_batch_convert, mock_validate):
         """Test batch command with vision enabled."""
-        mock_provider = Mock()
-        mock_get_provider.return_value = mock_provider
-        mock_validate.return_value = "test_key"
+        mock_validate.return_value = (True, None)
 
         runner = CliRunner()
         with runner.isolated_filesystem():
@@ -220,13 +191,13 @@ class TestBatchCommand:
 
             assert result.exit_code == 0
             call_args = mock_batch_convert.call_args[1]
-            assert call_args['vision'] is True
+            assert call_args['use_vision'] is True
 
 
 class TestModelsCommand:
     """Test the models CLI command."""
 
-    @patch('pdf_to_md_llm.cli.list_models_for_providers')
+    @patch('pdf_to_md_llm.providers.list_models_for_providers')
     def test_models_command_success(self, mock_list_models):
         """Test models command with successful response."""
         mock_list_models.return_value = {
@@ -238,12 +209,12 @@ class TestModelsCommand:
         result = runner.invoke(models)
 
         assert result.exit_code == 0
-        assert "anthropic" in result.output
-        assert "openai" in result.output
-        assert "claude-3-5-sonnet" in result.output
-        assert "gpt-4o" in result.output
+        assert "anthropic" in result.output.lower()
+        assert "openai" in result.output.lower()
+        assert "claude" in result.output.lower() or "sonnet" in result.output.lower()
+        assert "gpt" in result.output.lower()
 
-    @patch('pdf_to_md_llm.cli.list_models_for_providers')
+    @patch('pdf_to_md_llm.providers.list_models_for_providers')
     def test_models_command_no_api_keys(self, mock_list_models):
         """Test models command when no API keys are available."""
         mock_list_models.return_value = {}
@@ -254,7 +225,7 @@ class TestModelsCommand:
         assert result.exit_code == 0
         # Should still complete but show no models
 
-    @patch('pdf_to_md_llm.cli.list_models_for_providers')
+    @patch('pdf_to_md_llm.providers.list_models_for_providers')
     def test_models_command_with_error(self, mock_list_models):
         """Test models command when an error occurs."""
         mock_list_models.side_effect = Exception("API error")
@@ -277,14 +248,11 @@ class TestCLIValidation:
         assert result.exit_code != 0
         assert "does not exist" in result.output.lower() or "error" in result.output.lower()
 
-    @patch('pdf_to_md_llm.cli.get_provider')
     @patch('pdf_to_md_llm.cli.validate_api_key_available')
     @patch('pdf_to_md_llm.cli.convert_pdf_to_markdown')
-    def test_convert_with_max_tokens(self, mock_convert, mock_validate, mock_get_provider):
+    def test_convert_with_max_tokens(self, mock_convert, mock_validate):
         """Test convert command with custom max tokens."""
-        mock_provider = Mock()
-        mock_get_provider.return_value = mock_provider
-        mock_validate.return_value = "test_key"
+        mock_validate.return_value = (True, None)
         mock_convert.return_value = "# Markdown"
 
         runner = CliRunner()

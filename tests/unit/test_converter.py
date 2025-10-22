@@ -166,6 +166,7 @@ class TestExtractPagesWithVision:
         # Mock PDF document
         mock_page = MagicMock()
         mock_page.get_text.return_value = "Page 1 text"
+        mock_page.get_images.return_value = []  # No embedded images
         mock_pixmap = MagicMock()
         mock_pixmap.tobytes.return_value = b'image_bytes'
         mock_page.get_pixmap.return_value = mock_pixmap
@@ -178,10 +179,9 @@ class TestExtractPagesWithVision:
         pages = extract_pages_with_vision("dummy.pdf", dpi=150)
 
         assert len(pages) == 1
-        assert pages[0]["page_number"] == 1
+        assert pages[0]["page_num"] == 0  # 0-indexed
         assert pages[0]["text"] == "Page 1 text"
-        assert pages[0]["image"] == "encoded_image_data"
-        assert pages[0]["media_type"] == "image/png"
+        assert pages[0]["image_base64"] == "encoded_image_data"
         mock_page.get_pixmap.assert_called_once()
 
 
@@ -213,7 +213,9 @@ class TestConvertPdfToMarkdown:
             use_vision=False,
         )
 
-        assert result == "# Converted Markdown"
+        # Result should include header and converted markdown
+        assert "# Converted Markdown" in result
+        assert "Converted from PDF" in result
         mock_extract_text.assert_called_once_with("test.pdf")
         mock_chunk_pages.assert_called_once()
         mock_provider.convert_to_markdown.assert_called_once()
@@ -225,10 +227,10 @@ class TestConvertPdfToMarkdown:
         """Test PDF to markdown conversion in vision mode."""
         # Setup mocks
         mock_extract_vision.return_value = [
-            {"page_number": 1, "text": "Page 1", "image": "img1"},
+            {"page_num": 0, "text": "Page 1", "image_base64": "img1", "has_images": False, "has_tables": False},
         ]
         mock_chunk_vision.return_value = [
-            [{"page_number": 1, "text": "Page 1", "image": "img1"}]
+            [{"page_num": 0, "text": "Page 1", "image_base64": "img1", "has_images": False, "has_tables": False}]
         ]
 
         # Mock provider
@@ -248,7 +250,9 @@ class TestConvertPdfToMarkdown:
             vision_dpi=150,
         )
 
-        assert result == "# Vision Markdown"
+        # Result should include header and converted markdown
+        assert "# Vision Markdown" in result
+        assert "Converted from PDF" in result
         mock_extract_vision.assert_called_once()
         mock_provider.convert_to_markdown_vision.assert_called_once()
 
@@ -281,9 +285,14 @@ class TestConvertPdfToMarkdown:
             use_vision=False,
         )
 
-        assert result == "# Markdown Output"
+        # Result should include header and converted markdown
+        assert "# Markdown Output" in result
+        assert "Converted from PDF" in result
         mock_open.assert_called_once_with("output.md", "w", encoding="utf-8")
-        mock_file.write.assert_called_once_with("# Markdown Output")
+        # The write should include the full output with header
+        write_call = mock_file.write.call_args[0][0]
+        assert "# Markdown Output" in write_call
+        assert "Converted from PDF" in write_call
 
 
 class TestBatchConvert:
@@ -308,7 +317,7 @@ class TestBatchConvert:
 
         mock_path_class.side_effect = lambda x: mock_input_folder if "input" in x else mock_output_folder
 
-        # Call batch_convert (with max_workers=1 to avoid threading complexity)
+        # Call batch_convert (with threads=1 to avoid threading complexity)
         batch_convert(
             input_folder="input",
             output_folder="output",
@@ -317,7 +326,7 @@ class TestBatchConvert:
             api_key="test_key",
             max_tokens=4096,
             use_vision=False,
-            max_workers=1,
+            threads=1,
         )
 
         # Verify convert_pdf_to_markdown was called for each PDF

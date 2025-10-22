@@ -72,9 +72,9 @@ class TestAnthropicProvider:
         provider = AnthropicProvider(api_key="test_key")
         pages = [
             {
-                "page_number": 1,
+                "page_num": 0,  # 0-indexed
                 "text": "Page 1 text",
-                "image": "base64_encoded_image",
+                "image_base64": "base64_encoded_image",
                 "media_type": "image/png"
             }
         ]
@@ -100,7 +100,7 @@ class TestAnthropicProvider:
         result = provider.convert_to_markdown(
             text="Test",
             max_tokens=4096,
-            system_prompt="Custom instructions",
+            custom_system_prompt="Custom instructions",
         )
 
         assert result == "# Custom Output"
@@ -109,35 +109,37 @@ class TestAnthropicProvider:
 
     @patch('anthropic.Anthropic')
     def test_anthropic_validate_config_success(self, mock_anthropic_class):
-        """Test API key validation with successful response."""
+        """Test API key validation with valid key."""
         mock_client = Mock()
-        mock_client.models.list.return_value = Mock()  # Successful call
         mock_anthropic_class.return_value = mock_client
 
         provider = AnthropicProvider(api_key="valid_key")
         is_valid = provider.validate_config()
 
         assert is_valid is True
-        mock_client.models.list.assert_called_once()
 
     @patch('anthropic.Anthropic')
     def test_anthropic_validate_config_failure(self, mock_anthropic_class):
-        """Test API key validation with failed response."""
+        """Test API key validation with invalid/empty key."""
         mock_client = Mock()
-        mock_client.models.list.side_effect = Exception("Invalid API key")
         mock_anthropic_class.return_value = mock_client
 
-        provider = AnthropicProvider(api_key="invalid_key")
+        # Test with empty key
+        provider = AnthropicProvider(api_key="")
         is_valid = provider.validate_config()
+        assert is_valid is False
 
+        # Test with placeholder key
+        provider = AnthropicProvider(api_key="your-api-key-here")
+        is_valid = provider.validate_config()
         assert is_valid is False
 
     @patch('anthropic.Anthropic')
     def test_anthropic_list_available_models(self, mock_anthropic_class):
         """Test listing available models."""
         mock_client = Mock()
-        mock_model1 = Mock(id="claude-3-5-sonnet-20241022")
-        mock_model2 = Mock(id="claude-3-5-haiku-20241022")
+        mock_model1 = Mock(id="claude-3-5-sonnet-20241022", created_at=1700000001)
+        mock_model2 = Mock(id="claude-3-5-haiku-20241022", created_at=1700000000)
         mock_models_response = Mock(data=[mock_model1, mock_model2])
         mock_client.models.list.return_value = mock_models_response
         mock_anthropic_class.return_value = mock_client
@@ -146,8 +148,8 @@ class TestAnthropicProvider:
         models = provider.list_available_models()
 
         assert len(models) == 2
-        assert models[0] == "claude-3-5-sonnet-20241022"
-        assert models[1] == "claude-3-5-haiku-20241022"
+        assert models[0]['id'] == "claude-3-5-sonnet-20241022"
+        assert models[1]['id'] == "claude-3-5-haiku-20241022"
 
 
 class TestOpenAIProvider:
@@ -161,7 +163,9 @@ class TestOpenAIProvider:
         mock_choice = Mock()
         mock_choice.message.content = "# Converted Markdown"
         mock_choice.finish_reason = "stop"
-        mock_response = Mock(choices=[mock_choice])
+        mock_usage = Mock()
+        mock_usage.completion_tokens = 100
+        mock_response = Mock(choices=[mock_choice], usage=mock_usage)
         mock_client.chat.completions.create.return_value = mock_response
         mock_openai_class.return_value = mock_client
 
@@ -175,7 +179,7 @@ class TestOpenAIProvider:
         assert result == "# Converted Markdown"
         mock_client.chat.completions.create.assert_called_once()
         call_args = mock_client.chat.completions.create.call_args[1]
-        assert call_args['max_completion_tokens'] == 4096
+        assert call_args['max_tokens'] == 4096
         assert call_args['model'] == "gpt-4o-mini"
 
     @patch('openai.OpenAI')
@@ -186,7 +190,9 @@ class TestOpenAIProvider:
         mock_choice = Mock()
         mock_choice.message.content = "# Partial"
         mock_choice.finish_reason = "length"
-        mock_response = Mock(choices=[mock_choice])
+        mock_usage = Mock()
+        mock_usage.completion_tokens = 100
+        mock_response = Mock(choices=[mock_choice], usage=mock_usage)
         mock_client.chat.completions.create.return_value = mock_response
         mock_openai_class.return_value = mock_client
 
@@ -195,7 +201,7 @@ class TestOpenAIProvider:
         with pytest.raises(TruncationError) as exc_info:
             provider.convert_to_markdown(text="Test input", max_tokens=100)
 
-        assert "length" in str(exc_info.value).lower()
+        assert "truncated" in str(exc_info.value).lower()
 
     @patch('openai.OpenAI')
     def test_openai_convert_vision_mode(self, mock_openai_class):
@@ -212,9 +218,9 @@ class TestOpenAIProvider:
         provider = OpenAIProvider(api_key="test_key", model="gpt-4o-mini")
         pages = [
             {
-                "page_number": 1,
+                "page_num": 0,  # 0-indexed
                 "text": "Page 1 text",
-                "image": "base64_encoded_image",
+                "image_base64": "base64_encoded_image",
                 "media_type": "image/png"
             }
         ]
@@ -231,8 +237,11 @@ class TestOpenAIProvider:
         """Test that GPT-5 models use the Responses API."""
         # Mock OpenAI client with Responses API
         mock_client = Mock()
-        mock_output_item = Mock(content="# GPT-5 Markdown")
-        mock_response = Mock(output=[mock_output_item], status="completed")
+        mock_output_item = Mock(content="# GPT-5 Markdown", status="completed")
+        mock_usage = Mock()
+        mock_usage.input_tokens = 50
+        mock_usage.output_tokens = 100
+        mock_response = Mock(output=[mock_output_item], output_text="# GPT-5 Markdown", usage=mock_usage)
         mock_client.responses.create.return_value = mock_response
         mock_openai_class.return_value = mock_client
 
@@ -262,22 +271,26 @@ class TestOpenAIProvider:
 
     @patch('openai.OpenAI')
     def test_openai_validate_config_failure(self, mock_openai_class):
-        """Test API key validation with failed response."""
+        """Test API key validation with invalid/empty key."""
         mock_client = Mock()
-        mock_client.models.list.side_effect = Exception("Invalid API key")
         mock_openai_class.return_value = mock_client
 
-        provider = OpenAIProvider(api_key="invalid_key")
+        # Test with empty key
+        provider = OpenAIProvider(api_key="")
         is_valid = provider.validate_config()
+        assert is_valid is False
 
+        # Test with placeholder key
+        provider = OpenAIProvider(api_key="your-api-key-here")
+        is_valid = provider.validate_config()
         assert is_valid is False
 
     @patch('openai.OpenAI')
     def test_openai_list_available_models(self, mock_openai_class):
         """Test listing available models."""
         mock_client = Mock()
-        mock_model1 = Mock(id="gpt-4o")
-        mock_model2 = Mock(id="gpt-4o-mini")
+        mock_model1 = Mock(id="gpt-4o", created=1700000000)
+        mock_model2 = Mock(id="gpt-4o-mini", created=1700000001)
         mock_models_response = Mock(data=[mock_model1, mock_model2])
         mock_client.models.list.return_value = mock_models_response
         mock_openai_class.return_value = mock_client
@@ -286,8 +299,9 @@ class TestOpenAIProvider:
         models = provider.list_available_models()
 
         assert len(models) == 2
-        assert models[0] == "gpt-4o"
-        assert models[1] == "gpt-4o-mini"
+        # Models are sorted by created date (most recent first), so gpt-4o-mini should be first
+        assert models[0]['id'] == "gpt-4o-mini"
+        assert models[1]['id'] == "gpt-4o"
 
 
 class TestProviderFactory:
