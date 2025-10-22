@@ -191,7 +191,8 @@ class TestConvertPdfToMarkdown:
     @patch('pdf_to_md_llm.converter.extract_text_from_pdf')
     @patch('pdf_to_md_llm.converter.chunk_pages')
     @patch('pdf_to_md_llm.converter.get_provider')
-    def test_convert_pdf_to_markdown_text_mode(self, mock_get_provider, mock_chunk_pages, mock_extract_text):
+    @patch('builtins.open', new_callable=MagicMock)
+    def test_convert_pdf_to_markdown_text_mode(self, mock_open, mock_get_provider, mock_chunk_pages, mock_extract_text):
         """Test PDF to markdown conversion in text mode."""
         # Setup mocks
         mock_extract_text.return_value = ["Page 1", "Page 2"]
@@ -201,6 +202,10 @@ class TestConvertPdfToMarkdown:
         mock_provider = Mock()
         mock_provider.convert_to_markdown.return_value = "# Converted Markdown"
         mock_get_provider.return_value = mock_provider
+
+        # Mock file writing to prevent test.md creation
+        mock_file = MagicMock()
+        mock_open.return_value.__enter__.return_value = mock_file
 
         # Call function (without vision)
         result = convert_pdf_to_markdown(
@@ -219,11 +224,14 @@ class TestConvertPdfToMarkdown:
         mock_extract_text.assert_called_once_with("test.pdf")
         mock_chunk_pages.assert_called_once()
         mock_provider.convert_to_markdown.assert_called_once()
+        # Verify file was opened for writing
+        mock_open.assert_called_once_with("test.md", "w", encoding="utf-8")
 
     @patch('pdf_to_md_llm.converter.extract_pages_with_vision')
     @patch('pdf_to_md_llm.converter.chunk_vision_pages')
     @patch('pdf_to_md_llm.converter.get_provider')
-    def test_convert_pdf_to_markdown_vision_mode(self, mock_get_provider, mock_chunk_vision, mock_extract_vision):
+    @patch('builtins.open', new_callable=MagicMock)
+    def test_convert_pdf_to_markdown_vision_mode(self, mock_open, mock_get_provider, mock_chunk_vision, mock_extract_vision):
         """Test PDF to markdown conversion in vision mode."""
         # Setup mocks
         mock_extract_vision.return_value = [
@@ -237,6 +245,10 @@ class TestConvertPdfToMarkdown:
         mock_provider = Mock()
         mock_provider.convert_to_markdown_vision.return_value = "# Vision Markdown"
         mock_get_provider.return_value = mock_provider
+
+        # Mock file writing to prevent test.md creation
+        mock_file = MagicMock()
+        mock_open.return_value.__enter__.return_value = mock_file
 
         # Call function (with vision)
         result = convert_pdf_to_markdown(
@@ -255,6 +267,8 @@ class TestConvertPdfToMarkdown:
         assert "Converted from PDF" in result
         mock_extract_vision.assert_called_once()
         mock_provider.convert_to_markdown_vision.assert_called_once()
+        # Verify file was opened for writing
+        mock_open.assert_called_once_with("test.md", "w", encoding="utf-8")
 
     @patch('pdf_to_md_llm.converter.extract_text_from_pdf')
     @patch('pdf_to_md_llm.converter.chunk_pages')
